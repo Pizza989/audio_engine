@@ -1,13 +1,12 @@
 use std::path::Path;
 
 use audio::{
-    Buf, Channel, ExactSizeBuf, ReadBuf,
-    buf::{Dynamic, Interleaved, interleaved::IterChannels},
-    channel::{InterleavedChannel, LinearChannel},
+    Channel,
+    buf::Dynamic,
     io::{Read, Write},
 };
 use symphonia::core::{
-    audio::SampleBuffer, codecs::DecoderOptions, conv::ConvertibleSample, units::TimeBase,
+    audio::SampleBuffer, codecs::DecoderOptions, conv::ConvertibleSample,
 };
 
 use crate::audio::{error::LoadError, slice_buffer::SliceBuffer};

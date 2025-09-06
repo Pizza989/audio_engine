@@ -18,20 +18,16 @@ https://github.com/MeadowlarkDAW/meadowlark-core-types/blob/main/src/time/superc
 ```
 
 # TODO
-(1) pull in the audio crate and extend it so that it can interop with symphonia.
-(2) then continue pulling in the symphonium source code and convert it to use
-    the types from the audio crate.
-
-(1) this envolves improving the conversion between foreign buffer types
-      * this might mean reworking the current model of wrapping them
-        using the wrap module
-      * this might alternatively mean adding additional implementations
-        to the wrapped Buffers
-
-(2) this means reworking the src/audio/decode.rs file so the decode functions
-    generate the correct buffer types
-
-
-(1') create an AudioBuffer type that
-      * can be loaded from a file
-      * can be shared somehow
+(1) REASON: to make it convenient to hand slices of audio clips from
+    the cache to the audio graph
+    TASK: rework the dsp-chain crate to use audio's buffers this
+    includes:
+    * implementing support for variable amounts of inputs and out-
+      puts per node
+    * obviously rewriting the audio processing logic in the graph
+(2) REASON: The timeline currently only supports single events with-
+    out context. To make it possible to place audio clips in the
+    timeline some form of context needs to exist.
+    TASK: make the timeline store Clips instead of events. these will
+    have a start and an end and the timeline can therefore correctly
+    generate events to schedule playing any part of the clip
