@@ -30,3 +30,8 @@ https://github.com/MeadowlarkDAW/meadowlark-core-types/blob/main/src/time/superc
 
 (2) this means reworking the src/audio/decode.rs file so the decode functions
     generate the correct buffer types
+
+
+(1') create an AudioBuffer type that
+      * can be loaded from a file
+      * can be shared somehow

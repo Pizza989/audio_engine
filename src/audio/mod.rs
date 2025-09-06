@@ -1,50 +1,74 @@
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
-use slotmap::{SlotMap, new_key_type};
+use audio::{
+    Buf, Channel, ExactSizeBuf, ReadBuf,
+    buf::{Dynamic, Interleaved, interleaved::IterChannels},
+    channel::{InterleavedChannel, LinearChannel},
+    io::{Read, Write},
+};
+use symphonia::core::{
+    audio::SampleBuffer, codecs::DecoderOptions, conv::ConvertibleSample, units::TimeBase,
+};
 
-use audio::buf::{Dynamic, Interleaved};
-use symphonium::SymphoniumLoader;
-use time::SampleRate;
+use crate::audio::{error::LoadError, slice_buffer::SliceBuffer};
 
-pub mod decode;
+pub mod cache;
 pub mod error;
+pub mod probe;
+pub mod slice_buffer;
 
-#[derive(Clone)]
-pub struct AudioBuffer {
-    buffer: Arc<Dynamic<f32>>,
-    sample_rate: SampleRate,
-}
+pub fn load<F: ConvertibleSample + audio::Sample>(
+    path: impl AsRef<Path>,
+) -> Result<Dynamic<F>, LoadError> {
+    let source =
+        probe::probe_file(path, symphonia::default::get_probe()).expect("failed to probe file");
 
-impl AudioBuffer {
-    pub fn new(buffer: Dynamic<f32>, sample_rate: SampleRate) -> Self {
-        Self {
-            buffer: Arc::new(buffer),
-            sample_rate,
+    let mut format = source.probed.format;
+    let track = format
+        .default_track()
+        .ok_or_else(|| LoadError::NoTrackFound)?;
+
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .map_err(|e| LoadError::CouldNotCreateDecoder(e))?;
+
+    let track_id = track.id;
+    let mut sample_buffer = None;
+
+    let mut final_buffer = Dynamic::<F>::with_topology(
+        source.num_channels.get(),
+        track.codec_params.n_frames.unwrap_or(0) as usize,
+    );
+    let mut write = Write::new(&mut final_buffer);
+
+    while let Ok(packet) = format.next_packet() {
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        match decoder.decode(&packet) {
+            Ok(audio_buffer) => {
+                if sample_buffer.is_none() {
+                    sample_buffer = Some(SampleBuffer::<F>::new(
+                        audio_buffer.capacity() as u64,
+                        *audio_buffer.spec(),
+                    ));
+                }
+
+                if let Some(buffer) = &mut sample_buffer {
+                    buffer.copy_interleaved_ref(audio_buffer);
+                    let read = Read::new(SliceBuffer::from_slice(
+                        buffer.samples(),
+                        source.num_channels.get(),
+                    ));
+                    audio::io::copy_remaining(read, &mut write);
+                }
+            }
+            Err(e) => {
+                return Err(LoadError::ErrorWhileDecoding(e));
+            }
         }
     }
 
-    pub fn from_path(path: impl AsRef<Path>, loader: &mut SymphoniumLoader) -> Self {
-        loader.load(path, None, symphonium::ResampleQuality::High, None);
-    }
-}
-
-new_key_type! { pub struct BufferKey; }
-
-#[derive(Default)]
-pub struct AudioCache {
-    buffers: SlotMap<BufferKey, AudioBuffer>,
-}
-
-impl AudioCache {
-    pub fn insert(&mut self, buffer: AudioBuffer) -> BufferKey {
-        self.buffers.insert(buffer)
-    }
-
-    pub fn get(&self, key: BufferKey) -> Option<&AudioBuffer> {
-        self.buffers.get(key)
-    }
-
-    pub fn get_mut(&mut self, key: BufferKey) -> Option<&mut AudioBuffer> {
-        self.buffers.get_mut(key)
-    }
+    Ok(final_buffer)
 }

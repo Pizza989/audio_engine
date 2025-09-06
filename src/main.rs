@@ -1,11 +1,11 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use audio_engine::{
-    audio::{AudioBuffer, AudioCache},
+    audio::{cache::AudioBufferCache, load},
     timeline::{Event, Timeline},
 };
 use dsp::{Graph, Node};
-use time::{FrameTime, MusicalTime};
+use time::{FrameTime, MusicalTime, SampleRate};
 
 struct DspNode {}
 impl Node<[f32; 2]> for DspNode {
@@ -21,31 +21,34 @@ impl Node<[f32; 2]> for DspNode {
 }
 
 fn main() {
-    let mut graph = Graph::new();
-    let events = BTreeMap::new();
+    let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
 
-    let mut cache = AudioCache::default();
-    let key = cache.insert(AudioBuffer);
+    let mut cache = AudioBufferCache::<f32>::new();
+    let key = cache
+        .insert(load(assets_dir.join("synth_keys_48000_16bit.wav")).expect("failed to load audio"));
+    let buffer = cache.get_mut(key).unwrap();
 
-    let mut timeline = Timeline::new(120., time::SampleRate(44_000.), events);
-    timeline.insert(
-        MusicalTime::from_fractional_beats::<8>(2, 3),
-        Event { payload: todo!() },
-    );
+    // let mut graph = Graph::new();
+    // let events = BTreeMap::new();
+    // let mut timeline = Timeline::new(120., time::SampleRate(44_000.), events);
+    // // timeline.insert(
+    // //     MusicalTime::from_fractional_beats::<8>(2, 3),
+    // //     Event { payload: todo!() },
+    // // );
 
-    for (i, block_events) in timeline.iter_blocks(FrameTime::new(256)).enumerate() {
-        println!("{i}");
-        if !block_events.is_empty() {
-            dbg!(block_events);
-            return;
-        }
-    }
+    // for (i, block_events) in timeline.iter_blocks(FrameTime::new(256)).enumerate() {
+    //     println!("{i}");
+    //     if !block_events.is_empty() {
+    //         dbg!(block_events);
+    //         return;
+    //     }
+    // }
 
-    let synth = graph.add_node(DspNode {});
-    graph.set_master(Some(synth));
+    // let synth = graph.add_node(DspNode {});
+    // graph.set_master(Some(synth));
 
-    let mut buffer = [[3.; 2]; 1];
-    dbg!(buffer);
-    graph.audio_requested(&mut buffer, 44100.);
-    dbg!(buffer);
+    // let mut buffer = [[3.; 2]; 1];
+    // dbg!(buffer);
+    // graph.audio_requested(&mut buffer, 44100.);
+    // dbg!(buffer);
 }

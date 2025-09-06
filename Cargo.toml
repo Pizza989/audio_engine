@@ -4,13 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-symphonium = { path = "symphonium" }
+audio = "0.2.0"
 dsp-chain = { path = "dsp-chain" }
 slotmap = "1.0.7"
 symphonia = "0.5.4"
 thiserror = "2.0.16"
 time = { path = "time" }
-audio = "0.2.0"
 
 [workspace]
-members = ["dsp-chain", "time", "symphonium"]
+members = ["dsp-chain", "time"]
