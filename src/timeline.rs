@@ -13,6 +13,8 @@ pub struct Event {
 
 pub struct Clip {
     pub buffer: BufferKey,
+    // The offset into the buffer
+    pub offset: FrameTime,
 }
 
 #[derive(Debug)]
@@ -90,9 +92,21 @@ impl Timeline {
                     buffer: clip.buffer,
                 };
 
-                let block_event = BlockEvent {
-                    offset: buffer_slice_range.start - start,
-                    event,
+                // OVERFLOW: because of the lossy conversions in the case where
+                // `start` should be equal to `buffer_slice_range.start` it can
+                // happen that it is actually bigger which would cause an over-
+                // flow because FrameTime is a wrapper around u64 which cannot
+                // be negative
+                let block_event = if start > buffer_slice_range.start {
+                    BlockEvent {
+                        offset: FrameTime::new(0),
+                        event,
+                    }
+                } else {
+                    BlockEvent {
+                        offset: buffer_slice_range.start - start,
+                        event,
+                    }
                 };
                 block_events.push(block_event);
             }

@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+arc-swap = "1.7.1"
 audio = "0.2.0"
 dsp-chain = { path = "dsp-chain" }
 interavl = "0.3.0"
+once_cell = "1.21.3"
 slotmap = "1.0.7"
 symphonia = "0.5.4"
 thiserror = "2.0.16"

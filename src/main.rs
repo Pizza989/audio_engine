@@ -1,47 +1,71 @@
-use std::path::PathBuf;
+use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
+use arc_swap::ArcSwap;
+use audio::buf::Dynamic;
 use audio_engine::{
-    audio::{cache::AudioBufferCache, load},
-    timeline::{Clip, Timeline},
+    audio::{
+        cache::{AudioBufferCache, BufferKey},
+        load,
+    },
+    timeline::{BlockEvent, Clip, Timeline},
 };
 use dsp::Node;
 use interavl::IntervalTree;
+use once_cell::sync::Lazy;
 use time::{FrameTime, MusicalTime, SampleRate};
 
-struct DspNode {}
-impl Node<[f32; 2]> for DspNode {
-    fn audio_requested(&mut self, buffer: &mut [[f32; 2]], sample_hz: f64) {
-        dbg!(sample_hz);
-        for sample in buffer {
-            // *sample = [sample[0] * 3.0, sample[1] * 3.0];
-        }
-        // dsp::slice::map_in_place(buffer, |f| {
-        //     dsp::Frame::map(f, |s| dsp::Sample::mul_amp(s, 3.))
-        // });
-    }
+static AUDIO_CACHE: Lazy<ArcSwap<AudioBufferCache<f32>>> =
+    Lazy::new(|| ArcSwap::from_pointee(AudioBufferCache::new()));
+
+struct AudioNode {
+    events: VecDeque<BlockEvent>,
+}
+
+impl Node<[f32; 2]> for AudioNode {
+    fn audio_requested(&mut self, buffer: &mut [[f32; 2]], sample_hz: f64) {}
+}
+
+fn insert_buffer(buffer: Dynamic<f32>) -> BufferKey {
+    let current_cache = AUDIO_CACHE.load_full();
+
+    let (new_cache, key) =
+        AudioBufferCache::from_slotmap(current_cache.buffers.clone()).insert(Arc::new(buffer));
+
+    AUDIO_CACHE.store(Arc::new(new_cache));
+    key
 }
 
 fn main() {
     let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
 
-    let mut cache = AudioBufferCache::<f32>::new();
-    let key = cache
-        .insert(load(assets_dir.join("synth_keys_48000_16bit.wav")).expect("failed to load audio"));
+    let key = insert_buffer(
+        load(assets_dir.join("synth_keys_48000_16bit.wav")).expect("failed to load audio"),
+    );
 
     let mut timeline = Timeline::new(120.0, SampleRate::default(), IntervalTree::default());
     timeline
         .insert(
             MusicalTime::from_fractional_beats::<8>(3, 1)
                 ..MusicalTime::from_fractional_beats::<8>(4, 0),
-            Clip { buffer: key },
+            Clip {
+                buffer: key,
+                offset: FrameTime::new(0),
+            },
         )
         .unwrap();
 
+    let mut counter = 0;
+    let mut past = false;
     for events in timeline.iter_blocks(FrameTime::new(256)) {
         if !events.is_empty() {
             dbg!(events);
+            counter += 1;
+            past = true;
+        } else if past {
+            break;
         }
     }
+    dbg!(counter);
 
     // let mut graph = Graph::new();
     // let events = BTreeMap::new();

@@ -1,11 +1,14 @@
+use std::sync::Arc;
+
 use audio::buf::Dynamic;
 use slotmap::{SlotMap, new_key_type};
 use symphonia::core::sample::Sample;
 
 new_key_type! { pub struct BufferKey; }
 
+#[derive(Clone)]
 pub struct AudioBufferCache<S: Sample> {
-    buffers: SlotMap<BufferKey, Dynamic<S>>,
+    pub buffers: SlotMap<BufferKey, Arc<Dynamic<S>>>,
 }
 
 impl<S: Sample> AudioBufferCache<S> {
@@ -15,15 +18,16 @@ impl<S: Sample> AudioBufferCache<S> {
         }
     }
 
-    pub fn insert(&mut self, buffer: Dynamic<S>) -> BufferKey {
-        self.buffers.insert(buffer)
+    pub fn from_slotmap(buffers: SlotMap<BufferKey, Arc<Dynamic<S>>>) -> Self {
+        Self { buffers }
     }
 
-    pub fn get(&self, key: BufferKey) -> Option<&Dynamic<S>> {
+    pub fn insert(mut self, buffer: Arc<Dynamic<S>>) -> (AudioBufferCache<S>, BufferKey) {
+        let key = self.buffers.insert(buffer);
+        (self, key)
+    }
+
+    pub fn get(&self, key: BufferKey) -> Option<&Arc<Dynamic<S>>> {
         self.buffers.get(key)
-    }
-
-    pub fn get_mut(&mut self, key: BufferKey) -> Option<&mut Dynamic<S>> {
-        self.buffers.get_mut(key)
     }
 }
