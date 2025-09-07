@@ -1,11 +1,12 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::path::PathBuf;
 
 use audio_engine::{
     audio::{cache::AudioBufferCache, load},
-    timeline::Timeline,
+    timeline::{Clip, Timeline},
 };
 use dsp::Node;
-use time::SampleRate;
+use interavl::IntervalTree;
+use time::{FrameTime, MusicalTime, SampleRate};
 
 struct DspNode {}
 impl Node<[f32; 2]> for DspNode {
@@ -27,7 +28,20 @@ fn main() {
     let key = cache
         .insert(load(assets_dir.join("synth_keys_48000_16bit.wav")).expect("failed to load audio"));
 
-    let mut timeline = Timeline::new(120.0, SampleRate::default(), BTreeMap::new());
+    let mut timeline = Timeline::new(120.0, SampleRate::default(), IntervalTree::default());
+    timeline
+        .insert(
+            MusicalTime::from_fractional_beats::<8>(3, 1)
+                ..MusicalTime::from_fractional_beats::<8>(4, 0),
+            Clip { buffer: key },
+        )
+        .unwrap();
+
+    for events in timeline.iter_blocks(FrameTime::new(256)) {
+        if !events.is_empty() {
+            dbg!(events);
+        }
+    }
 
     // let mut graph = Graph::new();
     // let events = BTreeMap::new();

@@ -1,50 +1,59 @@
-use std::collections::BTreeMap;
+use std::ops::Range;
 
+use interavl::IntervalTree;
 use time::{FrameTime, MusicalTime, SampleRate};
 
-#[derive(Clone, Debug)]
-enum Payload {
-    Midi,
-    Audio,
-}
+use crate::audio::cache::BufferKey;
 
 #[derive(Clone, Debug)]
 pub struct Event {
-    payload: Payload,
+    pub buffer_slice_range: Range<FrameTime>,
+    pub buffer: BufferKey,
+}
+
+pub struct Clip {
+    pub buffer: BufferKey,
 }
 
 #[derive(Debug)]
 pub struct BlockEvent {
-    offset: FrameTime,
-    event: Event,
+    pub offset: FrameTime,
+    pub event: Event,
+}
+
+fn get_intersection(
+    block_range: &Range<MusicalTime>,
+    clip_range: &Range<MusicalTime>,
+) -> Option<Range<MusicalTime>> {
+    let start = block_range.start.max(clip_range.start);
+    let end = block_range.end.min(clip_range.end);
+
+    if start < end { Some(start..end) } else { None }
 }
 
 pub struct Timeline {
     bpm: f64,
     sample_rate: SampleRate,
-    events: BTreeMap<MusicalTime, Vec<Event>>,
+    clips: IntervalTree<MusicalTime, Clip>,
 }
 
 impl Timeline {
-    pub fn new(
-        bpm: f64,
-        sample_rate: SampleRate,
-        events: BTreeMap<MusicalTime, Vec<Event>>,
-    ) -> Self {
+    pub fn new(bpm: f64, sample_rate: SampleRate, clips: IntervalTree<MusicalTime, Clip>) -> Self {
         Self {
             bpm,
             sample_rate,
-            events,
+            clips,
         }
     }
 
-    pub fn insert(&mut self, start: MusicalTime, event: Event) {
-        match self.events.get_mut(&start) {
-            Some(events) => events.push(event),
-            None => {
-                self.events.insert(start, vec![event]);
-            }
-        };
+    // overwrites anything that was at this range previously
+    pub fn insert(&mut self, range: Range<MusicalTime>, clip: Clip) -> Result<(), ()> {
+        if range.start >= range.end {
+            Err(())
+        } else {
+            self.clips.insert(range, clip);
+            Ok(())
+        }
     }
 
     pub fn iter_blocks(&self, block_size: FrameTime) -> impl Iterator<Item = Vec<BlockEvent>> {
@@ -52,26 +61,43 @@ impl Timeline {
             let start = block_size * (block_idx as u64);
             let end = start + block_size;
 
-            // WARNING: this may produce incorrect events due to lossy
-            // conversions (maybe). what could happen then is that
-            // events that are n samples outside the range are still
-            // included or vice versa. in theory this could of course
-            // be implemented lossless however i don't posses the mental
-            // capacity as of right now.
-            self.events
-                .range(
-                    start.to_musical_lossy(self.bpm, self.sample_rate)
-                        ..end.to_musical_lossy(self.bpm, self.sample_rate),
-                )
-                .flat_map(|(musical_time, events)| {
-                    events.iter().map(move |ev| BlockEvent {
-                        offset: musical_time
-                            .to_nearest_frame_round_lossy(self.bpm, self.sample_rate)
-                            - start,
-                        event: ev.clone(),
-                    })
-                })
-                .collect::<Vec<_>>()
+            // WARNING lossy conversion i have no clue if this can be implemented
+            // without one
+            let block_range = start.to_musical_lossy(self.bpm, self.sample_rate)
+                ..end.to_musical_lossy(self.bpm, self.sample_rate);
+
+            let mut block_events = Vec::new();
+            for (clip_range, clip) in self.clips.iter_overlaps(&block_range) {
+                // safe unwrap because they are known to overlap
+                let intersection = get_intersection(&block_range, &clip_range).unwrap();
+                // safe unwrap because intersection is known to be inside of clip_range
+                // therefore intersection.start >= clip_range.start
+                let clip_local_intersection =
+                    (intersection.start.checked_sub(clip_range.start).unwrap())
+                        ..(intersection.end.checked_sub(clip_range.start).unwrap());
+
+                // WARNING lossy conversion i have no clue if this can be implemented
+                // without one
+                let buffer_slice_range = clip_local_intersection
+                    .start
+                    .to_nearest_frame_round_lossy(self.bpm, self.sample_rate)
+                    ..clip_local_intersection
+                        .end
+                        .to_nearest_frame_round_lossy(self.bpm, self.sample_rate);
+
+                let event = Event {
+                    buffer_slice_range: buffer_slice_range.clone(),
+                    buffer: clip.buffer,
+                };
+
+                let block_event = BlockEvent {
+                    offset: buffer_slice_range.start - start,
+                    event,
+                };
+                block_events.push(block_event);
+            }
+
+            block_events
         })
     }
 }
