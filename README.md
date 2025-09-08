@@ -25,6 +25,9 @@ https://github.com/MeadowlarkDAW/meadowlark-core-types/blob/main/src/time/superc
     * implementing support for variable amounts of inputs and out-
       puts per node
     * obviously rewriting the audio processing logic in the graph
+    CONCRETE:
+    * specify graph block_size statically
+
 (2) REASON: The timeline currently only supports single events with-
     out context. To make it possible to place audio clips in the
     timeline some form of context needs to exist.

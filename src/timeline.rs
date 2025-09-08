@@ -17,7 +17,7 @@ pub struct Clip {
     pub offset: FrameTime,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockEvent {
     pub offset: FrameTime,
     pub event: Event,
@@ -46,6 +46,14 @@ impl Timeline {
             sample_rate,
             clips,
         }
+    }
+
+    pub fn sample_rate(&self) -> SampleRate {
+        self.sample_rate
+    }
+
+    pub fn bpm(&self) -> f64 {
+        self.bpm
     }
 
     // overwrites anything that was at this range previously

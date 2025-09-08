@@ -5,15 +5,14 @@ use audio::{
     buf::Dynamic,
     io::{Read, Write},
 };
-use symphonia::core::{
-    audio::SampleBuffer, codecs::DecoderOptions, conv::ConvertibleSample,
-};
+use symphonia::core::{audio::SampleBuffer, codecs::DecoderOptions, conv::ConvertibleSample};
 
 use crate::audio::{error::LoadError, slice_buffer::SliceBuffer};
 
 pub mod cache;
 pub mod error;
 pub mod probe;
+pub mod shared_buffer;
 pub mod slice_buffer;
 
 pub fn load<F: ConvertibleSample + audio::Sample>(
