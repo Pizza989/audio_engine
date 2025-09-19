@@ -11,7 +11,7 @@ where
     ///
     /// Any source/generator type nodes should simply render straight to the buffer.
     /// Any effects/processor type nodes should mutate the buffer directly.
-    fn audio_requested(&mut self, buffer: &mut [F], sample_hz: f64);
+    fn audio_requested(&mut self, buffer: &mut audio::buf::Interleaved<F>, sample_hz: f64);
 
     /// Following the call to the `Node`'s `audio_requested` method, the `Graph` will sum together
     /// some of the original (dry) signal with some of the processed (wet) signal.
@@ -53,7 +53,7 @@ where
     F: Frame,
 {
     #[inline]
-    fn audio_requested(&mut self, buffer: &mut [F], sample_hz: f64) {
+    fn audio_requested(&mut self, buffer: &mut audio::buf::Interleaved<F>, sample_hz: f64) {
         (**self).audio_requested(buffer, sample_hz);
     }
     #[inline]

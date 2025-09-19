@@ -8,6 +8,7 @@
 //! The `Graph` type requires that its nodes implement the [`Node`](../node/trait.Node.html) trait.
 
 use crate::node::Node;
+use audio::buf::Interleaved;
 use daggy::{self, Walker};
 use dasp::{self, Frame, Sample};
 
@@ -75,14 +76,14 @@ pub type PetGraph<F, N> = daggy::PetGraph<N, Connection<F>, usize>;
 ///
 /// **Graph** also offers methods for accessing its underlying **Dag** or **PetGraph**.
 #[derive(Clone, Debug)]
-pub struct Graph<F, N> {
+pub struct Graph<F: Frame + audio::Sample, N> {
     dag: Dag<F, N>,
     /// The order in which audio will be requested from each node.
     visit_order: Vec<NodeIndex>,
     /// The node from which audio will be requested upon a call to `Node::audio_requested`.
     maybe_master: Option<NodeIndex>,
     /// A buffer to re-use when mixing the dry and wet signals when audio is requested.
-    dry_buffer: Vec<F>,
+    dry_buffer: audio::buf::Interleaved<F>,
 }
 
 /// Describes a connection between two Nodes within the Graph: *input -> connection -> output*.
@@ -124,7 +125,7 @@ pub struct VisitOrderReverse {
     current_visit_order_idx: usize,
 }
 
-impl<F, N> Graph<F, N>
+impl<F: audio::Sample, N> Graph<F, N>
 where
     F: Frame,
     N: Node<F>,
@@ -139,7 +140,7 @@ where
         Graph {
             dag: dag,
             visit_order: Vec::new(),
-            dry_buffer: Vec::new(),
+            dry_buffer: Interleaved::new(),
             maybe_master: None,
         }
     }
@@ -154,7 +155,7 @@ where
         Graph {
             dag: daggy::Dag::with_capacity(nodes, connections),
             visit_order: Vec::with_capacity(nodes),
-            dry_buffer: Vec::with_capacity(frames_per_buffer),
+            dry_buffer: Interleaved::with_topology(1, frames_per_buffer),
             maybe_master: None,
         }
     }
@@ -532,7 +533,7 @@ where
     /// Prepare the buffers for all nodes within the Graph.
     pub fn prepare_buffers(&mut self, buffer_size: usize) {
         // Initialise the dry signal buffer.
-        resize_buffer_to(&mut self.dry_buffer, buffer_size);
+        self.dry_buffer.resize_frames(buffer_size);
 
         // Initialise all connection buffers.
         for connection in self.dag.edge_weights_mut() {
@@ -543,25 +544,32 @@ where
     /// Request audio from the node at the given index.
     ///
     /// **Panics** if there is no node for the given index.
-    pub fn audio_requested_from(&mut self, out_node: NodeIndex, output: &mut [F], sample_hz: f64) {
+    pub fn audio_requested_from(
+        &mut self,
+        out_node: NodeIndex,
+        output: &mut audio::buf::Interleaved<F>,
+        sample_hz: f64,
+    ) {
         // We can only go on if a node actually exists for the given index.
         if self.node(out_node).is_none() {
             panic!("No node for the given index");
         }
 
-        let buffer_size = output.len();
+        let buffer_size = output.frames();
 
         // Ensure the dry_buffer is the same length as the output buffer.
-        if self.dry_buffer.len() != buffer_size {
-            resize_buffer_to(&mut self.dry_buffer, buffer_size);
+        if self.dry_buffer.frames() != buffer_size {
+            self.dry_buffer.resize_frames(buffer_size);
         }
+        let mut output_slice = output.as_slice_mut();
+        let mut dry_slice = self.dry_buffer.as_slice_mut();
 
         let mut visit_order = self.visit_order();
         while let Some(node_idx) = visit_order.next(self) {
             // Set the buffers to equilibrium, ready to sum the inputs of the current node.
             for i in 0..buffer_size {
-                output[i] = F::EQUILIBRIUM;
-                self.dry_buffer[i] = F::EQUILIBRIUM;
+                output_slice[i] = F::EQUILIBRIUM;
+                dry_slice[i] = F::EQUILIBRIUM;
             }
 
             // Walk over each of the input connections to sum their buffers to the output.
@@ -678,7 +686,7 @@ where
     F: Frame,
     N: Node<F>,
 {
-    fn audio_requested(&mut self, output: &mut [F], sample_hz: f64) {
+    fn audio_requested(&mut self, output: &mut audio::buf::Interleaved<F>, sample_hz: f64) {
         match self.maybe_master {
             Some(master) => self.audio_requested_from(master, output, sample_hz),
             None => {

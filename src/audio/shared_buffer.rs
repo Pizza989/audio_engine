@@ -1,11 +1,5 @@
 use std::sync::Arc;
 
-use audio::{
-    Buf, ExactSizeBuf,
-    buf::{Dynamic, dynamic::IterChannels},
-    channel::LinearChannel,
-};
-
 #[derive(Clone)]
 pub struct SharedBuffer<T>(Arc<Dynamic<T>>);
 

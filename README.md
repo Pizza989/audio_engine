@@ -34,3 +34,13 @@ https://github.com/MeadowlarkDAW/meadowlark-core-types/blob/main/src/time/superc
     TASK: make the timeline store Clips instead of events. these will
     have a start and an end and the timeline can therefore correctly
     generate events to schedule playing any part of the clip
+
+
+OPTIONS:
+  CLEAN
+  * rewrite dsp-chain with the audio crate instead of dasp
+  * write an alternative to the audio crate using dasp
+    instead of audio_core for basic types and traits
+
+  DIRTY
+  * interop between dsp-chain and audio using as_slice
