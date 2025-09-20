@@ -6,10 +6,9 @@ pub mod stride;
 
 /// A general abstraction over multi-channel, resizeable audio buffers.
 ///
-/// - The number of channels is fixed at compile time (`const C`).
 /// - Storage layout (frame-major, channel-major, interleaved, etc.)
 ///   is determined by the implementor.
-pub trait Buffer<const C: usize> {
+pub trait Buffer {
     type Sample: dasp::Sample;
 
     type Frame<'this>: BufferAxis<Self::Sample>
@@ -35,13 +34,11 @@ pub trait Buffer<const C: usize> {
     fn frames(&self) -> usize {
         self.samples() / self.channels()
     }
-    fn channels(&self) -> usize {
-        C
-    }
+    fn channels(&self) -> usize;
     fn samples(&self) -> usize;
 }
 
-pub trait BufferMut<const C: usize>: Buffer<C> {
+pub trait BufferMut: Buffer {
     type FrameMut<'this>: BufferAxisMut<Self::Sample>
     where
         Self: 'this;
@@ -59,10 +56,31 @@ pub trait BufferMut<const C: usize>: Buffer<C> {
     fn iter_frames_mut(&mut self) -> Self::IterFramesMut<'_>;
     fn iter_channels_mut(&mut self) -> Self::IterChannelsMut<'_>;
 
-    fn with_frame_mut<F, R>(&mut self, index: usize, f: F) -> Option<R>
+    fn with_frame_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
     where
-        F: FnOnce(Self::FrameMut<'_>) -> R;
-    fn with_channel_mut<F, R>(&mut self, index: usize, f: F) -> Option<R>
+        F: FnOnce(Self::FrameMut<'this>) -> R;
+    fn with_channel_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
     where
-        F: FnOnce(Self::ChannelMut<'_>) -> R;
+        F: FnOnce(Self::ChannelMut<'this>) -> R;
+}
+
+pub trait DynamicBuffer: Buffer {
+    /// Resize the buffer, truncating data if shrinking
+    fn resize(&mut self, frames: usize);
+
+    /// Grow the buffer to at least the specified size.
+    /// This must never shrink the buffer.
+    fn ensure_capacity(&mut self, min_frames: usize) {
+        if self.frames() < min_frames {
+            self.resize(min_frames);
+        }
+    }
+
+    /// Truncate the buffer to the specified size.
+    /// This must never grow the buffer.
+    fn truncate(&mut self, max_frames: usize) {
+        if self.frames() > max_frames {
+            self.resize(max_frames);
+        }
+    }
 }

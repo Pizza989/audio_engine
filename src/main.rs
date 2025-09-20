@@ -1,25 +1,22 @@
+use audio_buffer::core::Buffer;
 use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
 use arc_swap::ArcSwap;
-use audio::{
-    buf::Dynamic,
-    io::{Read, Write},
-};
+use audio_buffer::interleaved_dynamic::InterleavedDynamicBuffer;
 use audio_engine::{
     audio::{
         cache::{AudioBufferCache, BufferKey},
         load,
         shared_buffer::SharedBuffer,
-        slice_buffer::SliceBuffer,
     },
     timeline::{BlockEvent, Clip, Timeline},
 };
-use dsp::{Graph, Node};
+// use dsp::{Graph, Node};
 use interavl::IntervalTree;
 use once_cell::sync::Lazy;
 use time::{FrameTime, MusicalTime, SampleRate};
 
-static AUDIO_CACHE: Lazy<ArcSwap<AudioBufferCache<f32>>> =
+static AUDIO_CACHE: Lazy<ArcSwap<AudioBufferCache<InterleavedDynamicBuffer<f32>>>> =
     Lazy::new(|| ArcSwap::from_pointee(AudioBufferCache::new()));
 
 struct AudioNode {
@@ -32,23 +29,11 @@ impl AudioNode {
     }
 }
 
-impl Node<[f32; 2]> for AudioNode {
-    fn audio_requested(&mut self, buffer: &mut [[f32; 2]], sample_hz: f64) {
-        for event in self.events.iter() {
-            let key = event.event.buffer;
-            let buffer_range = &event.event.buffer_slice_range;
-            let offset = event.offset;
+// impl Node<[f32; 2]> for AudioNode {
+//     fn audio_requested(&mut self, buffer: &mut [[f32; 2]], sample_hz: f64) {}
+// }
 
-            let cache = AUDIO_CACHE.load();
-            let input_buffer = cache.get(key).unwrap();
-            let reader = Read::new(input_buffer);
-            let writer = Write::new(SliceBuffer::from_slice(buffer, 2));
-            // audio::io::copy_remaining(reader, writer);
-        }
-    }
-}
-
-fn insert_buffer(buffer: Dynamic<f32>) -> BufferKey {
+fn insert_buffer(buffer: InterleavedDynamicBuffer<f32>) -> BufferKey {
     let current_cache = AUDIO_CACHE.load_full();
 
     let (new_cache, key) = AudioBufferCache::from_slotmap(current_cache.buffers.clone())
@@ -65,34 +50,41 @@ fn main() {
         load(assets_dir.join("synth_keys_48000_16bit.wav")).expect("failed to load audio"),
     );
 
-    let mut timeline = Timeline::new(120.0, SampleRate::default(), IntervalTree::default());
-    timeline
-        .insert(
-            MusicalTime::from_fractional_beats::<8>(3, 1)
-                ..MusicalTime::from_fractional_beats::<8>(4, 0),
-            Clip {
-                buffer: key,
-                offset: FrameTime::new(0),
-            },
-        )
-        .unwrap();
+    let buffer =
+        load::<f32>(assets_dir.join("synth_keys_48000_16bit.wav")).expect("failed to load audio");
 
-    let mut graph = Graph::new();
-    let audio_node_index = graph.add_node(AudioNode {
-        events: VecDeque::new(),
-    });
-    graph.set_master(Some(audio_node_index));
-
-    for events in timeline.iter_blocks(FrameTime::new(256)) {
-        let audio_node = graph.node_mut(audio_node_index).unwrap();
-        events
-            .iter()
-            .for_each(|event| audio_node.push_event(event.clone()));
-
-        let mut out = [[0.0; 2]; 256];
-        graph.audio_requested(&mut out, timeline.sample_rate().as_f64());
-        dbg!(out);
+    for frame in buffer.iter_frames() {
+        println!("{:?}", frame);
     }
+
+    // let mut timeline = Timeline::new(120.0, SampleRate::default(), IntervalTree::default());
+    // timeline
+    //     .insert(
+    //         MusicalTime::from_fractional_beats::<8>(3, 1)
+    //             ..MusicalTime::from_fractional_beats::<8>(4, 0),
+    //         Clip {
+    //             buffer: key,
+    //             offset: FrameTime::new(0),
+    //         },
+    //     )
+    //     .unwrap();
+
+    // let mut graph = Graph::new();
+    // let audio_node_index = graph.add_node(AudioNode {
+    //     events: VecDeque::new(),
+    // });
+    // graph.set_master(Some(audio_node_index));
+
+    // for events in timeline.iter_blocks(FrameTime::new(256)) {
+    // let audio_node = graph.node_mut(audio_node_index).unwrap();
+    // events
+    //     .iter()
+    //     .for_each(|event| audio_node.push_event(event.clone()));
+
+    // let mut out = [[0.0; 2]; 256];
+    // graph.audio_requested(&mut out, timeline.sample_rate().as_f64());
+    // dbg!(out);
+    // }
 
     // for (i, block_events) in timeline.iter_blocks(FrameTime::new(256)).enumerate() {
     //     println!("{i}");

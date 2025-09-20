@@ -22,7 +22,7 @@ impl<T: dasp::Sample, const CHANNELS: usize, const SAMPLES: usize>
     }
 }
 
-impl<T: dasp::Sample, const CHANNELS: usize, const SAMPLES: usize> Buffer<CHANNELS>
+impl<T: dasp::Sample, const CHANNELS: usize, const SAMPLES: usize> Buffer
     for InterleavedStaticBuffer<T, CHANNELS, SAMPLES>
 {
     type Sample = T;
@@ -70,9 +70,13 @@ impl<T: dasp::Sample, const CHANNELS: usize, const SAMPLES: usize> Buffer<CHANNE
     fn samples(&self) -> usize {
         SAMPLES
     }
+
+    fn channels(&self) -> usize {
+        CHANNELS
+    }
 }
 
-impl<T: dasp::Sample + 'static, const CHANNELS: usize, const SAMPLES: usize> BufferMut<CHANNELS>
+impl<T: dasp::Sample + 'static, const CHANNELS: usize, const SAMPLES: usize> BufferMut
     for InterleavedStaticBuffer<T, CHANNELS, SAMPLES>
 {
     type FrameMut<'this>
@@ -101,9 +105,9 @@ impl<T: dasp::Sample + 'static, const CHANNELS: usize, const SAMPLES: usize> Buf
         ChannelIterMut::new(self.data.as_mut_ptr(), 0, SAMPLES / CHANNELS)
     }
 
-    fn with_frame_mut<F, R>(&mut self, index: usize, f: F) -> Option<R>
+    fn with_frame_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
     where
-        F: FnOnce(Self::FrameMut<'_>) -> R,
+        F: FnOnce(Self::FrameMut<'this>) -> R,
     {
         match self.data.get_mut(index..index + CHANNELS) {
             Some(frame) => Some(f(frame)),
@@ -111,9 +115,9 @@ impl<T: dasp::Sample + 'static, const CHANNELS: usize, const SAMPLES: usize> Buf
         }
     }
 
-    fn with_channel_mut<F, R>(&mut self, index: usize, f: F) -> Option<R>
+    fn with_channel_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
     where
-        F: FnOnce(Self::ChannelMut<'_>) -> R,
+        F: FnOnce(Self::ChannelMut<'this>) -> R,
     {
         if index < CHANNELS {
             Some(f(unsafe {

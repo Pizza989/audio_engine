@@ -1,35 +1,23 @@
 use crate::{
     core::{
-        Buffer, BufferMut, DynamicBuffer,
+        Buffer, BufferMut,
         stride::{StridedSlice, StridedSliceMut},
     },
     interleaved_dynamic::iter::{ChannelIter, ChannelIterMut, FrameIter, FrameIterMut},
 };
 
-pub mod iter;
-
-pub struct InterleavedDynamicBuffer<T> {
-    data: Vec<T>,
+pub struct WrapInterleaved<'a, T> {
+    data: &'a [T],
     channels: usize,
 }
 
-impl<T: dasp::Sample> InterleavedDynamicBuffer<T> {
-    pub fn new(channels: usize) -> Self {
-        Self {
-            data: Vec::<T>::new(),
-            channels,
-        }
-    }
-
-    pub fn with_topology(channels: usize, capacity: usize) -> Self {
-        Self {
-            data: Vec::<T>::with_capacity(capacity),
-            channels,
-        }
+impl<'a, T> WrapInterleaved<'a, T> {
+    pub fn new(data: &'a [T], channels: usize) -> Self {
+        Self { data, channels }
     }
 }
 
-impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
+impl<'a, T: dasp::Sample> Buffer for WrapInterleaved<'a, T> {
     type Sample = T;
 
     type Frame<'this>
@@ -43,12 +31,12 @@ impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
         Self: 'this;
 
     type IterFrames<'this>
-        = FrameIter<'this, T>
+        = FrameIter<'this, Self::Sample>
     where
         Self: 'this;
 
     type IterChannels<'this>
-        = ChannelIter<'this, T>
+        = ChannelIter<'this, Self::Sample>
     where
         Self: 'this;
 
@@ -84,23 +72,98 @@ impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
         )
     }
 
+    fn channels(&self) -> usize {
+        self.channels
+    }
+
     fn samples(&self) -> usize {
         self.data.len()
+    }
+}
+
+pub struct WrapInterleavedMut<'a, T> {
+    data: &'a mut [T],
+    channels: usize,
+}
+
+impl<'a, T> WrapInterleavedMut<'a, T> {
+    pub fn new(data: &'a mut [T], channels: usize) -> Self {
+        Self { data, channels }
+    }
+}
+
+impl<'a, T: dasp::Sample> Buffer for WrapInterleavedMut<'a, T> {
+    type Sample = T;
+
+    type Frame<'this>
+        = &'this [Self::Sample]
+    where
+        Self: 'this;
+
+    type Channel<'this>
+        = StridedSlice<'this, Self::Sample>
+    where
+        Self: 'this;
+
+    type IterFrames<'this>
+        = FrameIter<'this, Self::Sample>
+    where
+        Self: 'this;
+
+    type IterChannels<'this>
+        = ChannelIter<'this, Self::Sample>
+    where
+        Self: 'this;
+
+    fn get_frame(&self, index: usize) -> Option<Self::Frame<'_>> {
+        self.data.get(index..index + self.channels())
+    }
+
+    fn get_channel(&self, index: usize) -> Option<Self::Channel<'_>> {
+        if index < self.channels() {
+            Some(unsafe {
+                StridedSlice::new(
+                    &self.data,
+                    index,
+                    self.samples() / self.channels(),
+                    self.channels(),
+                )
+            })
+        } else {
+            None
+        }
+    }
+
+    fn iter_frames(&self) -> Self::IterFrames<'_> {
+        FrameIter::new(self.data.chunks_exact(self.channels()), self.channels())
+    }
+
+    fn iter_channels(&self) -> Self::IterChannels<'_> {
+        ChannelIter::new(
+            &self.data,
+            0,
+            self.samples() / self.channels(),
+            self.channels(),
+        )
     }
 
     fn channels(&self) -> usize {
         self.channels
     }
+
+    fn samples(&self) -> usize {
+        self.data.len()
+    }
 }
 
-impl<T: dasp::Sample + 'static> BufferMut for InterleavedDynamicBuffer<T> {
+impl<'a, T: dasp::Sample + 'static> BufferMut for WrapInterleavedMut<'a, T> {
     type FrameMut<'this>
-        = &'this mut [Self::Sample]
+        = &'this mut [T]
     where
         Self: 'this;
 
     type ChannelMut<'this>
-        = StridedSliceMut<'this, Self::Sample>
+        = StridedSliceMut<'this, T>
     where
         Self: 'this;
 
@@ -115,16 +178,15 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedDynamicBuffer<T> {
         Self: 'this;
 
     fn iter_frames_mut(&mut self) -> Self::IterFramesMut<'_> {
-        let channels = self.channels();
-        FrameIterMut::new(self.data.chunks_exact_mut(channels), channels)
+        FrameIterMut::new(self.data.chunks_exact_mut(self.channels), self.channels)
     }
 
     fn iter_channels_mut(&mut self) -> Self::IterChannelsMut<'_> {
         ChannelIterMut::new(
             self.data.as_mut_ptr(),
             0,
-            self.samples() / self.channels(),
-            self.channels(),
+            self.channels,
+            self.samples() / self.channels,
         )
     }
 
@@ -152,11 +214,5 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedDynamicBuffer<T> {
         } else {
             None
         }
-    }
-}
-
-impl<T: dasp::Sample> DynamicBuffer for InterleavedDynamicBuffer<T> {
-    fn resize(&mut self, frames: usize) {
-        self.data.resize(frames * self.channels, T::EQUILIBRIUM);
     }
 }
