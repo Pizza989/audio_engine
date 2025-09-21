@@ -1,9 +1,7 @@
-use crate::{
-    core::{
-        Buffer, BufferMut, DynamicBuffer,
-        stride::{StridedSlice, StridedSliceMut},
-    },
-    interleaved_dynamic::iter::{ChannelIter, ChannelIterMut, FrameIter, FrameIterMut},
+use self::iter::{ChannelIter, ChannelIterMut, FrameIter, FrameIterMut};
+use crate::core::{
+    Buffer, BufferMut, ResizableBuffer,
+    stride::{StridedSlice, StridedSliceMut},
 };
 
 pub mod iter;
@@ -11,20 +9,23 @@ pub mod iter;
 pub struct InterleavedDynamicBuffer<T> {
     data: Vec<T>,
     channels: usize,
+    sample_rate: usize,
 }
 
-impl<T: dasp::Sample> InterleavedDynamicBuffer<T> {
-    pub fn new(channels: usize) -> Self {
+impl<T> InterleavedDynamicBuffer<T> {
+    pub fn new(channels: usize, sample_rate: usize) -> Self {
         Self {
             data: Vec::<T>::new(),
             channels,
+            sample_rate,
         }
     }
 
-    pub fn with_topology(channels: usize, capacity: usize) -> Self {
+    pub fn with_topology(channels: usize, sample_rate: usize, capacity: usize) -> Self {
         Self {
             data: Vec::<T>::with_capacity(capacity),
             channels,
+            sample_rate,
         }
     }
 }
@@ -72,7 +73,7 @@ impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
     }
 
     fn iter_frames(&self) -> Self::IterFrames<'_> {
-        FrameIter::new(self.data.chunks_exact(self.channels()), self.channels())
+        FrameIter::new(self.data.chunks_exact(self.channels()))
     }
 
     fn iter_channels(&self) -> Self::IterChannels<'_> {
@@ -90,6 +91,10 @@ impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
 
     fn channels(&self) -> usize {
         self.channels
+    }
+
+    fn sample_rate(&self) -> usize {
+        self.sample_rate
     }
 }
 
@@ -116,7 +121,7 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedDynamicBuffer<T> {
 
     fn iter_frames_mut(&mut self) -> Self::IterFramesMut<'_> {
         let channels = self.channels();
-        FrameIterMut::new(self.data.chunks_exact_mut(channels), channels)
+        FrameIterMut::new(self.data.chunks_exact_mut(channels))
     }
 
     fn iter_channels_mut(&mut self) -> Self::IterChannelsMut<'_> {
@@ -155,7 +160,7 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedDynamicBuffer<T> {
     }
 }
 
-impl<T: dasp::Sample> DynamicBuffer for InterleavedDynamicBuffer<T> {
+impl<T: dasp::Sample> ResizableBuffer for InterleavedDynamicBuffer<T> {
     fn resize(&mut self, frames: usize) {
         self.data.resize(frames * self.channels, T::EQUILIBRIUM);
     }

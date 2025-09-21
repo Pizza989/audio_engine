@@ -4,15 +4,15 @@ use audio_buffer::core::Buffer;
 
 pub struct SharedBuffer<B: Buffer>(Arc<B>);
 
-impl<B: Buffer> Clone for SharedBuffer<B> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
 impl<B: Buffer> SharedBuffer<B> {
     pub fn new(buffer: B) -> SharedBuffer<B> {
         Self(Arc::new(buffer))
+    }
+}
+
+impl<B: Buffer> Clone for SharedBuffer<B> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 
@@ -61,5 +61,9 @@ impl<B: Buffer> Buffer for SharedBuffer<B> {
 
     fn samples(&self) -> usize {
         self.0.samples()
+    }
+
+    fn sample_rate(&self) -> usize {
+        self.0.sample_rate()
     }
 }

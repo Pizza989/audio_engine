@@ -4,12 +4,11 @@ use crate::core::stride::{StridedSlice, StridedSliceMut};
 
 pub struct FrameIter<'a, T> {
     data: std::slice::ChunksExact<'a, T>,
-    channels: usize,
 }
 
 impl<'a, T> FrameIter<'a, T> {
-    pub fn new(data: std::slice::ChunksExact<'a, T>, channels: usize) -> Self {
-        Self { data, channels }
+    pub fn new(data: std::slice::ChunksExact<'a, T>) -> Self {
+        Self { data }
     }
 }
 
@@ -33,12 +32,11 @@ impl<'a, T> ExactSizeIterator for FrameIter<'a, T> {
 
 pub struct FrameIterMut<'a, T> {
     data: std::slice::ChunksExactMut<'a, T>,
-    channels: usize,
 }
 
 impl<'a, T> FrameIterMut<'a, T> {
-    pub fn new(data: std::slice::ChunksExactMut<'a, T>, channels: usize) -> Self {
-        Self { data, channels }
+    pub fn new(data: std::slice::ChunksExactMut<'a, T>) -> Self {
+        Self { data }
     }
 }
 

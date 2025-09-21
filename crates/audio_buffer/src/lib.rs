@@ -1,4 +1,3 @@
-pub mod compatability;
+pub mod buffers;
 pub mod core;
-pub mod interleaved_dynamic;
-pub mod interleaved_static;
+pub mod loader;

@@ -1,23 +1,23 @@
-use crate::{
-    core::{
-        Buffer, BufferMut,
-        stride::{StridedSlice, StridedSliceMut},
-    },
-    interleaved_static::iter::{ChannelIter, ChannelIterMut, FrameIter, FrameIterMut},
+use self::iter::{ChannelIter, ChannelIterMut, FrameIter, FrameIterMut};
+use crate::core::{
+    Buffer, BufferMut,
+    stride::{StridedSlice, StridedSliceMut},
 };
 
 pub mod iter;
 
 pub struct InterleavedStaticBuffer<T, const CHANNELS: usize, const SAMPLES: usize> {
     data: [T; SAMPLES],
+    sample_rate: usize,
 }
 
 impl<T: dasp::Sample, const CHANNELS: usize, const SAMPLES: usize>
     InterleavedStaticBuffer<T, CHANNELS, SAMPLES>
 {
-    pub fn new() -> Self {
+    pub fn new(sample_rate: usize) -> Self {
         Self {
             data: [T::EQUILIBRIUM; SAMPLES],
+            sample_rate,
         }
     }
 }
@@ -73,6 +73,10 @@ impl<T: dasp::Sample, const CHANNELS: usize, const SAMPLES: usize> Buffer
 
     fn channels(&self) -> usize {
         CHANNELS
+    }
+
+    fn sample_rate(&self) -> usize {
+        self.sample_rate
     }
 }
 

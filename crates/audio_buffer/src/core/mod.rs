@@ -36,6 +36,7 @@ pub trait Buffer {
     }
     fn channels(&self) -> usize;
     fn samples(&self) -> usize;
+    fn sample_rate(&self) -> usize;
 }
 
 pub trait BufferMut: Buffer {
@@ -64,7 +65,7 @@ pub trait BufferMut: Buffer {
         F: FnOnce(Self::ChannelMut<'this>) -> R;
 }
 
-pub trait DynamicBuffer: Buffer {
+pub trait ResizableBuffer: Buffer {
     /// Resize the buffer, truncating data if shrinking
     fn resize(&mut self, frames: usize);
 

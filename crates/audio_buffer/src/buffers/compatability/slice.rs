@@ -1,19 +1,24 @@
-use crate::{
-    core::{
-        Buffer, BufferMut,
-        stride::{StridedSlice, StridedSliceMut},
-    },
-    interleaved_dynamic::iter::{ChannelIter, ChannelIterMut, FrameIter, FrameIterMut},
+use super::super::interleaved_dynamic::iter::{
+    ChannelIter, ChannelIterMut, FrameIter, FrameIterMut,
+};
+use crate::core::{
+    Buffer, BufferMut,
+    stride::{StridedSlice, StridedSliceMut},
 };
 
 pub struct WrapInterleaved<'a, T> {
     data: &'a [T],
     channels: usize,
+    sample_rate: usize,
 }
 
 impl<'a, T> WrapInterleaved<'a, T> {
-    pub fn new(data: &'a [T], channels: usize) -> Self {
-        Self { data, channels }
+    pub fn new(data: &'a [T], channels: usize, sample_rate: usize) -> Self {
+        Self {
+            data,
+            channels,
+            sample_rate,
+        }
     }
 }
 
@@ -60,7 +65,7 @@ impl<'a, T: dasp::Sample> Buffer for WrapInterleaved<'a, T> {
     }
 
     fn iter_frames(&self) -> Self::IterFrames<'_> {
-        FrameIter::new(self.data.chunks_exact(self.channels()), self.channels())
+        FrameIter::new(self.data.chunks_exact(self.channels()))
     }
 
     fn iter_channels(&self) -> Self::IterChannels<'_> {
@@ -79,16 +84,25 @@ impl<'a, T: dasp::Sample> Buffer for WrapInterleaved<'a, T> {
     fn samples(&self) -> usize {
         self.data.len()
     }
+
+    fn sample_rate(&self) -> usize {
+        self.sample_rate
+    }
 }
 
 pub struct WrapInterleavedMut<'a, T> {
     data: &'a mut [T],
     channels: usize,
+    sample_rate: usize,
 }
 
 impl<'a, T> WrapInterleavedMut<'a, T> {
-    pub fn new(data: &'a mut [T], channels: usize) -> Self {
-        Self { data, channels }
+    pub fn new(data: &'a mut [T], channels: usize, sample_rate: usize) -> Self {
+        Self {
+            data,
+            channels,
+            sample_rate,
+        }
     }
 }
 
@@ -135,7 +149,7 @@ impl<'a, T: dasp::Sample> Buffer for WrapInterleavedMut<'a, T> {
     }
 
     fn iter_frames(&self) -> Self::IterFrames<'_> {
-        FrameIter::new(self.data.chunks_exact(self.channels()), self.channels())
+        FrameIter::new(self.data.chunks_exact(self.channels()))
     }
 
     fn iter_channels(&self) -> Self::IterChannels<'_> {
@@ -153,6 +167,10 @@ impl<'a, T: dasp::Sample> Buffer for WrapInterleavedMut<'a, T> {
 
     fn samples(&self) -> usize {
         self.data.len()
+    }
+
+    fn sample_rate(&self) -> usize {
+        self.sample_rate
     }
 }
 
@@ -178,7 +196,7 @@ impl<'a, T: dasp::Sample + 'static> BufferMut for WrapInterleavedMut<'a, T> {
         Self: 'this;
 
     fn iter_frames_mut(&mut self) -> Self::IterFramesMut<'_> {
-        FrameIterMut::new(self.data.chunks_exact_mut(self.channels), self.channels)
+        FrameIterMut::new(self.data.chunks_exact_mut(self.channels))
     }
 
     fn iter_channels_mut(&mut self) -> Self::IterChannelsMut<'_> {

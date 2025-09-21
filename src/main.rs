@@ -1,12 +1,10 @@
-use audio_buffer::core::Buffer;
+use audio_buffer::{buffers::interleaved_dynamic::InterleavedDynamicBuffer, core::Buffer};
 use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
 use arc_swap::ArcSwap;
-use audio_buffer::interleaved_dynamic::InterleavedDynamicBuffer;
 use audio_engine::{
     audio::{
         cache::{AudioBufferCache, BufferKey},
-        load,
         shared_buffer::SharedBuffer,
     },
     timeline::{BlockEvent, Clip, Timeline},
@@ -47,11 +45,12 @@ fn main() {
     let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
 
     let key = insert_buffer(
-        load(assets_dir.join("synth_keys_48000_16bit.wav")).expect("failed to load audio"),
+        audio_buffer::loader::load(assets_dir.join("synth_keys_48000_16bit.wav"))
+            .expect("failed to load audio"),
     );
 
-    let buffer =
-        load::<f32>(assets_dir.join("synth_keys_48000_16bit.wav")).expect("failed to load audio");
+    let buffer = audio_buffer::loader::load::<f32>(assets_dir.join("synth_keys_48000_16bit.wav"))
+        .expect("failed to load audio");
 
     for frame in buffer.iter_frames() {
         println!("{:?}", frame);

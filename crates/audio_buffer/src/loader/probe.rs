@@ -1,10 +1,13 @@
-use crate::audio::error::LoadError;
-use std::path::Path;
-use std::{fs::File, num::NonZeroUsize};
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::{MediaSource, MediaSourceStream};
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::{Hint, Probe, ProbeResult};
+use std::{fs::File, num::NonZeroUsize, path::Path};
+
+use symphonia::core::{
+    formats::FormatOptions,
+    io::{MediaSource, MediaSourceStream},
+    meta::MetadataOptions,
+    probe::{Hint, Probe, ProbeResult},
+};
+
+use crate::loader::error::LoadError;
 
 pub struct LoadedAudioSource {
     pub probed: ProbeResult,
@@ -14,8 +17,9 @@ pub struct LoadedAudioSource {
 
 pub fn probe_file<P: AsRef<Path>>(
     path: P,
-    probe: &'static Probe,
+    probe: Option<&'static Probe>,
 ) -> Result<LoadedAudioSource, LoadError> {
+    let probe = probe.unwrap_or(symphonia::default::get_probe());
     let path: &Path = path.as_ref();
 
     let file = File::open(path)?;

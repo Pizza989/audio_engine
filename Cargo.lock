@@ -19,6 +19,7 @@ name = "audio_buffer"
 version = "0.1.0"
 dependencies = [
  "dasp",
+ "symphonia",
 ]
 
 [[package]]
@@ -35,6 +36,10 @@ dependencies = [
  "thiserror",
  "time",
 ]
+
+[[package]]
+name = "audio_graph"
+version = "0.1.0"
 
 [[package]]
 name = "autocfg"

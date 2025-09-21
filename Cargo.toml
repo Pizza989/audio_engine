@@ -16,4 +16,4 @@ audio_buffer = { path = "crates/audio_buffer" }
 # dsp-chain = { path = "crates/dsp-chain" }
 
 [workspace]
-members = ["crates/dsp-chain", "crates/time", "crates/audio_buffer"]
+members = ["crates/dsp-chain", "crates/time", "crates/audio_buffer", "crates/audio_graph"]
