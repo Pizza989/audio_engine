@@ -13,7 +13,6 @@ thiserror = "2.0.16"
 dasp = "0.11.0"
 time = { path = "crates/time" }
 audio_buffer = { path = "crates/audio_buffer" }
-# dsp-chain = { path = "crates/dsp-chain" }
 
 [workspace]
-members = ["crates/dsp-chain", "crates/time", "crates/audio_buffer", "crates/audio_graph"]
+members = ["crates/time", "crates/audio_buffer", "crates/audio_graph"]

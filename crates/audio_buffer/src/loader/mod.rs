@@ -6,7 +6,7 @@ use crate::{
     buffers::{
         compatability::slice::WrapInterleaved, interleaved_dynamic::InterleavedDynamicBuffer,
     },
-    core::io::Writer,
+    core::io::writer::Writer,
     loader::error::LoadError,
 };
 
@@ -58,7 +58,7 @@ pub fn load<T: ConvertibleSample + dasp::Sample + 'static>(
                         source.num_channels.get(),
                         source.sample_rate as usize,
                     );
-                    writer.write_block_growing(&compat);
+                    writer.write_block_growing(&compat)?;
                 }
             }
             Err(e) => {
