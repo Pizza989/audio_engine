@@ -3,7 +3,7 @@
 // - add option to write mismatching buffers by selecting channels
 use crate::core::{
     Buffer, BufferMut, ResizableBuffer,
-    buffer_axis::{BufferAxis, BufferAxisMut},
+    axis::{BufferAxis, BufferAxisMut},
     io::error::IoError,
 };
 

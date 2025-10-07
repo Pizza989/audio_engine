@@ -1,11 +1,13 @@
 use crate::core::{
     Buffer, BufferMut,
-    buffer_axis::{BufferAxis, BufferAxisMut},
+    axis::{BufferAxis, BufferAxisMut},
 };
 
 pub mod error;
 pub mod writer;
 
+// TODO: Fix the below regression
+// Apparently you cannot iterate over the samples of a frame that was borrowed while iterating over a buffer
 pub fn mix_buffers<T: dasp::Sample + 'static, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
     input: &I,
     output: &mut O,

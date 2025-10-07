@@ -1,13 +1,9 @@
-use crate::core::buffer_axis::{BufferAxis, BufferAxisMut};
+use crate::core::axis::{BufferAxis, BufferAxisMut};
 
-pub mod buffer_axis;
+pub mod axis;
 pub mod io;
 pub mod stride;
 
-/// A general abstraction over multi-channel, resizeable audio buffers.
-///
-/// - Storage layout (frame-major, channel-major, interleaved, etc.)
-///   is determined by the implementor.
 pub trait Buffer {
     type Sample: dasp::Sample;
 
@@ -40,10 +36,10 @@ pub trait Buffer {
 }
 
 pub trait BufferMut: Buffer {
-    type FrameMut<'this>: BufferAxisMut<Self::Sample>
+    type FrameMut<'this>: BufferAxisMut<'this, Self::Sample>
     where
         Self: 'this;
-    type ChannelMut<'this>: BufferAxisMut<Self::Sample>
+    type ChannelMut<'this>: BufferAxisMut<'this, Self::Sample>
     where
         Self: 'this;
 
@@ -57,12 +53,26 @@ pub trait BufferMut: Buffer {
     fn iter_frames_mut(&mut self) -> Self::IterFramesMut<'_>;
     fn iter_channels_mut(&mut self) -> Self::IterChannelsMut<'_>;
 
-    fn with_frame_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
+    // SAFETY: this is safe because
+    // 1. a mutable frame is not returned
+    // 2. the passed closure can not return the frame either
+    //
+    // This does not compile!
+    // ```rust
+    //    let mut buffer = FixedFrameBuffer {
+    //      data: vec![[0.; 256]],
+    //      sample_rate: 44_100,
+    //    };
+    //    let mut view = buffer.with_frame_mut(0, |view| view).unwrap();
+    // ```
+    fn with_frame_mut<'s, F, R>(&'s mut self, index: usize, f: F) -> Option<R>
     where
-        F: FnOnce(Self::FrameMut<'this>) -> R;
-    fn with_channel_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
+        F: for<'this> FnOnce(Self::FrameMut<'this>) -> R,
+        R: 's;
+    fn with_channel_mut<'s, F, R>(&'s mut self, index: usize, f: F) -> Option<R>
     where
-        F: FnOnce(Self::ChannelMut<'this>) -> R;
+        F: for<'this> FnOnce(Self::ChannelMut<'this>) -> R,
+        R: 's;
 }
 
 pub trait ResizableBuffer: Buffer {

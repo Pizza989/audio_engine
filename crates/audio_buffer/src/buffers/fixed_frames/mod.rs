@@ -1,13 +1,9 @@
-use std::default;
-
-use lending_iterator::{FromFn, prelude::HKT};
-
 use crate::{
     buffers::{
-        fixed_frames::iter::{ChannelIter, FrameIter},
+        fixed_frames::iter::{FrameIter, FrameIterMut},
         view::{Index, IndexMut, InjectiveFn, MutableView, View},
     },
-    core::{Buffer, BufferMut},
+    core::{Buffer, BufferMut, axis::BufferAxisMut},
 };
 
 pub mod iter;
@@ -58,7 +54,7 @@ impl<T: dasp::Sample, const F: usize> Buffer for FixedFrameBuffer<T, F> {
         Self: 'this;
 
     type IterChannels<'this>
-        = ChannelIter<'this, T, F>
+        = std::slice::Iter<'this, [T; F]>
     where
         Self: 'this;
 
@@ -86,7 +82,7 @@ impl<T: dasp::Sample, const F: usize> Buffer for FixedFrameBuffer<T, F> {
     }
 
     fn iter_channels(&self) -> Self::IterChannels<'_> {
-        ChannelIter::new(self, 0)
+        self.data.iter()
     }
 
     fn channels(&self) -> usize {
@@ -114,29 +110,21 @@ impl<T: dasp::Sample, const FRAMES: usize> BufferMut for FixedFrameBuffer<T, FRA
         Self: 'this;
 
     type IterFramesMut<'this>
+        = FrameIterMut<'this, T, FRAMES>
     where
         Self: 'this;
 
     type IterChannelsMut<'this>
+        = std::slice::IterMut<'this, [T; FRAMES]>
     where
         Self: 'this;
 
     fn iter_frames_mut(&mut self) -> Self::IterFramesMut<'_> {
-        let mut position = 0;
-        Box::new(lending_iterator::FromFn::<HKT!(Self::FrameMut<'_>), _, _> {
-            state: &mut self.data,
-            next: move |data| {
-                Some(MutableView::new(
-                    data,
-                    InjectiveFn(Box::new(|channel: usize| (channel, position))),
-                ))
-            },
-            _phantom: <_>::default(),
-        })
+        FrameIterMut::new(self, 0)
     }
 
     fn iter_channels_mut(&mut self) -> Self::IterChannelsMut<'_> {
-        todo!()
+        self.data.iter_mut()
     }
 
     fn with_frame_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
@@ -144,11 +132,14 @@ impl<T: dasp::Sample, const FRAMES: usize> BufferMut for FixedFrameBuffer<T, FRA
         F: FnOnce(Self::FrameMut<'this>) -> R,
     {
         if index < FRAMES {
-            let frame = MutableView::new(
-                &mut self.data,
-                InjectiveFn(Box::new(move |channel: usize| (channel, index))),
-            );
-            Some(f(frame))
+            // SAFETY: This is safe because the mapper that is passed is an injective function
+            let view = unsafe {
+                MutableView::from_raw(
+                    &mut self.data as *mut _,
+                    InjectiveFn(Box::new(move |channel: usize| (channel, index))),
+                )
+            };
+            Some(f(view))
         } else {
             None
         }
@@ -162,5 +153,20 @@ impl<T: dasp::Sample, const FRAMES: usize> BufferMut for FixedFrameBuffer<T, FRA
             Some(channel) => Some(f(channel)),
             None => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{buffers::fixed_frames::FixedFrameBuffer, core::BufferMut};
+
+    #[test]
+    fn test_leaking_a_view() {
+        let mut buffer = FixedFrameBuffer {
+            data: vec![[0.; 256]],
+            sample_rate: 44_100,
+        };
+        // uh oh
+        let mut view = buffer.with_frame_mut(0, |view| view).unwrap();
     }
 }

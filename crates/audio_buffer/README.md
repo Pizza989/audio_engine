@@ -1,6 +1,4 @@
 # TODO
-- rework the core/io module
-- if multiple mutable borrows to different sections of a buffer should ever be
-  required. one could use a recursive implementation by putting an associated
-  type on the Buffer that requires Buffer. the details would however be
-  managed by the implementor as the Buffer traits is agnostic to memory layout
+- fix the regression in core/io/mod and core/io/writer
+  - refactor: replace stride with view
+    - write a blog about the memory safety that sums it all up

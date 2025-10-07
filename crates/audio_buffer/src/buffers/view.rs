@@ -1,4 +1,4 @@
-use crate::core::buffer_axis::{BufferAxis, BufferAxisMut};
+use crate::core::axis::{BufferAxis, BufferAxisMut};
 
 pub trait Index<I> {
     type Output;
@@ -65,16 +65,20 @@ pub struct MutableView<'a, D, I, J>
 where
     D: IndexMut<J>,
 {
-    data: &'a mut D,
+    data: *mut D,
     mapper: InjectiveFn<I, J>,
-    _phantom: std::marker::PhantomData<(I, J)>,
+    _phantom: std::marker::PhantomData<(&'a mut D, I, J)>, // SAFETY: keeps the lifetime of `data`
 }
 
 impl<'a, D, I, J> MutableView<'a, D, I, J>
 where
     D: IndexMut<J>,
 {
-    pub fn new(data: &'a mut D, mapper: InjectiveFn<I, J>) -> Self {
+    /// Create a `MutableView` from a raw pointer and a mapping function.
+    ///
+    /// # SAFETY
+    /// `mapper` has to be an injective function as otherwise aliasing will occur
+    pub unsafe fn from_raw(data: *mut D, mapper: InjectiveFn<I, J>) -> Self {
         Self {
             data,
             mapper,
@@ -85,13 +89,20 @@ where
     /// Get a value by applying the index transformation
     pub fn get(&self, index: I) -> Option<&D::Output> {
         let mapped_index = self.mapper.call(index);
-        self.data.get_indexed(mapped_index)
+
+        // SAFETY:
+        // 1. lifetime: self is valid because its lifetime is kept in `_phantom`
+        unsafe { (*self.data).get_indexed(mapped_index) }
     }
 
     /// Get a mutable reference by applying the index transformation
     pub fn get_mut(&mut self, index: I) -> Option<&mut D::Output> {
         let mapped_index = self.mapper.call(index);
-        self.data.get_indexed_mut(mapped_index)
+
+        // SAFETY:
+        // 1. lifetime: self is valid because its lifetime is kept in `_phantom`
+        // 2. aliasing: user guarrantees aliasing doesn't occur by passing a mapping function that is injective
+        unsafe { (*self.data).get_indexed_mut(mapped_index) }
     }
 
     /// Set a value by applying the index transformation
@@ -99,8 +110,7 @@ where
     where
         D::Output: Sized,
     {
-        let mapped_index = self.mapper.call(index);
-        let slot = self.data.get_indexed_mut(mapped_index)?;
+        let slot = self.get_mut(index)?;
         Some(std::mem::replace(slot, value))
     }
 }
@@ -132,6 +142,8 @@ where
         self.get_mut(index)
     }
 
+    // Be careful with this, self in iter_samples_mut would be &'a mut MutableView<'a, D, M, usize, J> which makes 'a invariant.
+    // You can easily run into issues like seen here: https://stackoverflow.com/questions/66252831/why-does-this-mutable-borrow-live-beyond-its-scope
     fn iter_samples_mut(&'a mut self) -> impl Iterator<Item = &'a mut D::Output> {
         MutableViewIterMut {
             view: self,
