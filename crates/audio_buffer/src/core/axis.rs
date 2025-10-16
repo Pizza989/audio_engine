@@ -40,6 +40,7 @@ where
 
 pub trait BufferAxisMut<'a, T>: BufferAxis<T> {
     fn get_sample_mut(&mut self, index: usize) -> Option<&mut T>;
+
     fn iter_samples_mut(&'a mut self) -> impl Iterator<Item = &'a mut T>
     where
         T: 'a;

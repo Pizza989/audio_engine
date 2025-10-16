@@ -136,15 +136,15 @@ where
 impl<'a, D, J> BufferAxisMut<'a, D::Output> for MutableView<'a, D, usize, J>
 where
     D: IndexMut<J>,
-    D::Output: 'a,
 {
     fn get_sample_mut(&mut self, index: usize) -> Option<&mut D::Output> {
         self.get_mut(index)
     }
 
-    // Be careful with this, self in iter_samples_mut would be &'a mut MutableView<'a, D, M, usize, J> which makes 'a invariant.
-    // You can easily run into issues like seen here: https://stackoverflow.com/questions/66252831/why-does-this-mutable-borrow-live-beyond-its-scope
-    fn iter_samples_mut(&'a mut self) -> impl Iterator<Item = &'a mut D::Output> {
+    fn iter_samples_mut(&'a mut self) -> impl Iterator<Item = &'a mut D::Output>
+    where
+        D::Output: 'a,
+    {
         MutableViewIterMut {
             view: self,
             index: 0,
