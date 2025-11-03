@@ -13,6 +13,8 @@ pub enum GraphError {
         "Connections must fulfill the invariant src.output_channels == dst.input_channels: {0} != {1}"
     )]
     InvalidConnection(usize, usize),
+    #[error("output and input nodes must always be valid")]
+    OutputInputValidity,
 }
 
 #[derive(Error, Debug)]

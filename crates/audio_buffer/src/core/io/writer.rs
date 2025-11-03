@@ -36,17 +36,31 @@ impl<'a, T: dasp::Sample + 'static, B: BufferMut<Sample = T>> Writer<'a, T, B> {
         }
 
         let mut written = 0;
-        for (mut dst_frame, src_frame) in self
-            .buffer
-            .iter_frames_mut()
-            .skip(self.position)
-            .zip(input.iter_frames())
-        {
-            for (s, d) in src_frame.iter_samples().zip(dst_frame.iter_samples_mut()) {
-                *d = *s;
-            }
-            written += 1;
-        }
+
+        self.buffer.map_frames_mut(
+            |mut out_frame, frame_index| -> Option<()> {
+                match input.get_frame(frame_index - self.position) {
+                    Some(in_frame) => {
+                        let result = Some(out_frame.map_samples_mut(|out_sample, sample_index| {
+                            match in_frame.get_sample(sample_index) {
+                                Some(in_sample) => {
+                                    *out_sample = *in_sample;
+                                    Some(())
+                                }
+                                None => {
+                                    unreachable!("channel mismatch between input and output buffers must not occur")
+                                }
+                        }
+                    }));
+
+                        written += 1;
+                        result
+                    }
+                    None => None,
+                }
+            },
+            Some(self.position),
+        );
 
         self.position += written;
         Ok(written)
@@ -64,17 +78,33 @@ impl<'a, T: dasp::Sample + 'static, B: BufferMut<Sample = T>> Writer<'a, T, B> {
         }
         let mut written = 0;
 
-        for (mut dst_frame, src_frame) in self
-            .buffer
-            .iter_frames_mut()
-            .skip(self.position)
-            .zip(input.iter_frames())
-        {
-            for (s, d) in src_frame.iter_samples().zip(dst_frame.iter_samples_mut()) {
-                *d = d.add_amp(s.to_signed_sample());
-            }
-            written += 1;
-        }
+        self.buffer.map_frames_mut(
+            |mut out_frame, frame_index| -> Option<()> {
+                match input.get_frame(frame_index - self.position) {
+                    Some(in_frame) => {
+                        let result = Some(out_frame.map_samples_mut(|out_sample, sample_index| {
+                    match in_frame.get_sample(sample_index) {
+                        Some(in_sample) => {
+                            *out_sample =
+                                out_sample.add_amp(dasp::Sample::to_signed_sample(*in_sample));
+                            Some(())
+                        }
+                        None => {
+                            panic!(
+                                "channel mismatch between input and output buffers must not occur"
+                            )
+                        }
+                    }
+                }));
+
+                        written += 1;
+                        result
+                    }
+                    None => None,
+                }
+            },
+            Some(self.position),
+        );
 
         self.position += written;
         Ok(written)

@@ -18,5 +18,5 @@ https://github.com/MeadowlarkDAW/meadowlark-core-types/blob/main/src/time/superc
 ```
 
 # TODO
-- implement the FixedFrameBuffer. this requires implementing the View
-  and crucially implementing BufferAxis for View.
+- add multi track support to the timeline
+  - figure out how to design an audio_graph that fits this

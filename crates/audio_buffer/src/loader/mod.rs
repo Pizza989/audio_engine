@@ -3,9 +3,7 @@ use std::path::Path;
 use symphonia::core::{audio::SampleBuffer, codecs::DecoderOptions, conv::ConvertibleSample};
 
 use crate::{
-    buffers::{
-        compatability::slice::WrapInterleaved, interleaved_dynamic::InterleavedDynamicBuffer,
-    },
+    buffers::{compatability::slice::WrapInterleaved, interleaved::InterleavedBuffer},
     core::io::writer::Writer,
     loader::error::LoadError,
 };
@@ -15,7 +13,7 @@ pub mod probe;
 
 pub fn load<T: ConvertibleSample + dasp::Sample + 'static>(
     path: impl AsRef<Path>,
-) -> Result<InterleavedDynamicBuffer<T>, LoadError> {
+) -> Result<InterleavedBuffer<T>, LoadError> {
     let source = probe::probe_file(path, None)?;
 
     let mut format = source.probed.format;
@@ -30,8 +28,8 @@ pub fn load<T: ConvertibleSample + dasp::Sample + 'static>(
     let track_id = track.id;
     let mut sample_buffer = None;
 
-    let mut final_buffer = InterleavedDynamicBuffer::<T>::with_topology(
-        source.num_channels.get(),
+    let mut final_buffer = InterleavedBuffer::<T>::with_capacity(
+        source.num_channels,
         source.sample_rate as usize,
         track.codec_params.n_frames.unwrap_or(0) as usize,
     );

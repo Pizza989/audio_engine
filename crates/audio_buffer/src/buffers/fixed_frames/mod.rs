@@ -1,9 +1,9 @@
 use crate::{
     buffers::{
-        fixed_frames::iter::{FrameIter, FrameIterMut},
+        fixed_frames::iter::FrameIter,
         view::{Index, IndexMut, InjectiveFn, MutableView, View},
     },
-    core::{Buffer, BufferMut, axis::BufferAxisMut},
+    core::{Buffer, BufferMut},
 };
 
 pub mod iter;
@@ -33,6 +33,15 @@ impl<T, const F: usize> IndexMut<(usize, usize)> for Vec<[T; F]> {
 pub struct FixedFrameBuffer<T, const F: usize> {
     data: Vec<[T; F]>,
     sample_rate: usize,
+}
+
+impl<T: dasp::Sample, const F: usize> FixedFrameBuffer<T, F> {
+    pub fn with_capacity(channels: usize, sample_rate: usize) -> Self {
+        Self {
+            data: vec![[T::EQUILIBRIUM; F]; channels],
+            sample_rate,
+        }
+    }
 }
 
 impl<T: dasp::Sample, const F: usize> Buffer for FixedFrameBuffer<T, F> {
@@ -109,24 +118,6 @@ impl<T: dasp::Sample, const FRAMES: usize> BufferMut for FixedFrameBuffer<T, FRA
     where
         Self: 'this;
 
-    type IterFramesMut<'this>
-        = FrameIterMut<'this, T, FRAMES>
-    where
-        Self: 'this;
-
-    type IterChannelsMut<'this>
-        = std::slice::IterMut<'this, [T; FRAMES]>
-    where
-        Self: 'this;
-
-    fn iter_frames_mut(&mut self) -> Self::IterFramesMut<'_> {
-        FrameIterMut::new(self, 0)
-    }
-
-    fn iter_channels_mut(&mut self) -> Self::IterChannelsMut<'_> {
-        self.data.iter_mut()
-    }
-
     fn with_frame_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
     where
         F: FnOnce(Self::FrameMut<'this>) -> R,
@@ -153,20 +144,5 @@ impl<T: dasp::Sample, const FRAMES: usize> BufferMut for FixedFrameBuffer<T, FRA
             Some(channel) => Some(f(channel)),
             None => None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{buffers::fixed_frames::FixedFrameBuffer, core::BufferMut};
-
-    #[test]
-    fn test_leaking_a_view() {
-        let mut buffer = FixedFrameBuffer {
-            data: vec![[0.; 256]],
-            sample_rate: 44_100,
-        };
-        // uh oh
-        let mut view = buffer.with_frame_mut(0, |view| view).unwrap();
     }
 }

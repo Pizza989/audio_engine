@@ -3,7 +3,7 @@ use std::ops::Range;
 use interavl::IntervalTree;
 use time::{FrameTime, MusicalTime, SampleRate};
 
-use crate::audio::cache::BufferKey;
+use crate::memory::BufferKey;
 
 #[derive(Clone, Debug)]
 pub struct Event {

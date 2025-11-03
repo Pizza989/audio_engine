@@ -5,26 +5,17 @@ pub trait Index<I> {
 
     fn get_indexed(&self, index: I) -> Option<&Self::Output>;
 }
+
 pub trait IndexMut<I>: Index<I> {
     fn get_indexed_mut(&mut self, index: I) -> Option<&mut Self::Output>;
 }
 
-/// Marker trait indicating that a mapping function is injective (one-to-one).
-///
 /// # Safety
 /// Implementors must guarantee that the mapping function never maps two different
 /// input indices to the same output index. Violating this invariant can lead to
 /// mutable aliasing and undefined behavior.
-///
-/// A function `f` is injective if: for all `a != b`, `f(a) != f(b)`
-pub unsafe trait InjectiveMapper<I, J> {
-    fn map(&self, index: I) -> J;
-}
-
-// Helper wrapper to make closures work with InjectiveMapper
 pub struct InjectiveFn<I, J>(pub Box<dyn Fn(I) -> J>);
 
-// Users must explicitly mark their functions as injective
 impl<I, J> InjectiveFn<I, J> {
     fn call(&self, index: I) -> J {
         (self.0)(index)
@@ -57,6 +48,21 @@ where
     pub fn get(&self, index: I) -> Option<&D::Output> {
         let mapped_index = (self.mapper)(index);
         self.data.get_indexed(mapped_index)
+    }
+}
+
+impl<'a, D> View<'a, D, usize, usize>
+where
+    D: Index<usize>,
+{
+    pub fn with_stride(data: &'a D, num_channels: usize, channel_index: usize) -> Self {
+        Self {
+            data,
+            mapper: Box::new(move |sample_index: usize| {
+                sample_index * num_channels + channel_index
+            }),
+            _phantom: std::marker::PhantomData,
+        }
     }
 }
 
@@ -140,19 +146,9 @@ where
     fn get_sample_mut(&mut self, index: usize) -> Option<&mut D::Output> {
         self.get_mut(index)
     }
-
-    fn iter_samples_mut(&'a mut self) -> impl Iterator<Item = &'a mut D::Output>
-    where
-        D::Output: 'a,
-    {
-        MutableViewIterMut {
-            view: self,
-            index: 0,
-        }
-    }
 }
 
-struct MutableViewIterMut<'view, D, J>
+pub struct MutableViewIterMut<'view, D, J>
 where
     D: IndexMut<J>,
 {

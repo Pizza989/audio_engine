@@ -1,19 +1,43 @@
-use self::iter::{ChannelIter, ChannelIterMut, FrameIter, FrameIterMut};
-use crate::core::{
-    Buffer, BufferMut, ResizableBuffer,
-    stride::{StridedSlice, StridedSliceMut},
+use std::num::NonZeroUsize;
+
+use self::iter::ChannelIter;
+use crate::{
+    buffers::view::{Index, IndexMut, InjectiveFn, MutableView, View},
+    core::{Buffer, BufferMut, ResizableBuffer},
 };
 
 pub mod iter;
 
-pub struct InterleavedDynamicBuffer<T> {
+impl<T> Index<usize> for Vec<T> {
+    type Output = T;
+
+    fn get_indexed(&self, index: usize) -> Option<&Self::Output> {
+        if index < self.len() {
+            Some(&self[index])
+        } else {
+            None
+        }
+    }
+}
+
+impl<T> IndexMut<usize> for Vec<T> {
+    fn get_indexed_mut(&mut self, index: usize) -> Option<&mut Self::Output> {
+        if index < self.len() {
+            Some(&mut self[index])
+        } else {
+            None
+        }
+    }
+}
+
+pub struct InterleavedBuffer<T> {
     data: Vec<T>,
-    channels: usize,
+    channels: NonZeroUsize,
     sample_rate: usize,
 }
 
-impl<T> InterleavedDynamicBuffer<T> {
-    pub fn new(channels: usize, sample_rate: usize) -> Self {
+impl<T> InterleavedBuffer<T> {
+    pub fn new(channels: NonZeroUsize, sample_rate: usize) -> Self {
         Self {
             data: Vec::<T>::new(),
             channels,
@@ -21,7 +45,7 @@ impl<T> InterleavedDynamicBuffer<T> {
         }
     }
 
-    pub fn with_topology(channels: usize, sample_rate: usize, capacity: usize) -> Self {
+    pub fn with_capacity(channels: NonZeroUsize, sample_rate: usize, capacity: usize) -> Self {
         Self {
             data: Vec::<T>::with_capacity(capacity),
             channels,
@@ -30,7 +54,7 @@ impl<T> InterleavedDynamicBuffer<T> {
     }
 }
 
-impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
+impl<T: dasp::Sample> Buffer for InterleavedBuffer<T> {
     type Sample = T;
 
     type Frame<'this>
@@ -39,12 +63,12 @@ impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
         Self: 'this;
 
     type Channel<'this>
-        = StridedSlice<'this, Self::Sample>
+        = View<'this, Vec<T>, usize, usize>
     where
         Self: 'this;
 
     type IterFrames<'this>
-        = FrameIter<'this, T>
+        = std::slice::ChunksExact<'this, T>
     where
         Self: 'this;
 
@@ -58,31 +82,23 @@ impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
     }
 
     fn get_channel(&self, index: usize) -> Option<Self::Channel<'_>> {
+        let channels = self.channels();
         if index < self.channels() {
-            Some(unsafe {
-                StridedSlice::new(
-                    &self.data,
-                    index,
-                    self.samples() / self.channels(),
-                    self.channels(),
-                )
-            })
+            Some(View::new(
+                &self.data,
+                Box::new(move |sample: usize| sample * channels + index),
+            ))
         } else {
             None
         }
     }
 
     fn iter_frames(&self) -> Self::IterFrames<'_> {
-        FrameIter::new(self.data.chunks_exact(self.channels()))
+        self.data.chunks_exact(self.channels())
     }
 
     fn iter_channels(&self) -> Self::IterChannels<'_> {
-        ChannelIter::new(
-            &self.data,
-            0,
-            self.samples() / self.channels(),
-            self.channels(),
-        )
+        ChannelIter::new(&self, 0)
     }
 
     fn samples(&self) -> usize {
@@ -90,7 +106,7 @@ impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
     }
 
     fn channels(&self) -> usize {
-        self.channels
+        self.channels.into()
     }
 
     fn sample_rate(&self) -> usize {
@@ -98,40 +114,16 @@ impl<T: dasp::Sample> Buffer for InterleavedDynamicBuffer<T> {
     }
 }
 
-impl<T: dasp::Sample + 'static> BufferMut for InterleavedDynamicBuffer<T> {
+impl<T: dasp::Sample + 'static> BufferMut for InterleavedBuffer<T> {
     type FrameMut<'this>
         = &'this mut [Self::Sample]
     where
         Self: 'this;
 
     type ChannelMut<'this>
-        = StridedSliceMut<'this, Self::Sample>
+        = MutableView<'this, Vec<T>, usize, usize>
     where
         Self: 'this;
-
-    type IterFramesMut<'this>
-        = FrameIterMut<'this, T>
-    where
-        Self: 'this;
-
-    type IterChannelsMut<'this>
-        = ChannelIterMut<'this, T>
-    where
-        Self: 'this;
-
-    fn iter_frames_mut(&mut self) -> Self::IterFramesMut<'_> {
-        let channels = self.channels();
-        FrameIterMut::new(self.data.chunks_exact_mut(channels))
-    }
-
-    fn iter_channels_mut(&mut self) -> Self::IterChannelsMut<'_> {
-        ChannelIterMut::new(
-            self.data.as_mut_ptr(),
-            0,
-            self.samples() / self.channels(),
-            self.channels(),
-        )
-    }
 
     fn with_frame_mut<'this, F, R>(&'this mut self, index: usize, f: F) -> Option<R>
     where
@@ -148,11 +140,14 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedDynamicBuffer<T> {
     where
         F: FnOnce(Self::ChannelMut<'this>) -> R,
     {
-        let samples = self.samples();
         let channels = self.channels();
         if index < self.channels() {
+            // SAFETY: The function is injective as long as channels != 0
             Some(f(unsafe {
-                StridedSliceMut::new(&mut self.data, index, samples / channels, channels)
+                MutableView::from_raw(
+                    &mut self.data,
+                    InjectiveFn(Box::new(move |sample| sample * channels + index)),
+                )
             }))
         } else {
             None
@@ -160,8 +155,8 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedDynamicBuffer<T> {
     }
 }
 
-impl<T: dasp::Sample> ResizableBuffer for InterleavedDynamicBuffer<T> {
+impl<T: dasp::Sample> ResizableBuffer for InterleavedBuffer<T> {
     fn resize(&mut self, frames: usize) {
-        self.data.resize(frames * self.channels, T::EQUILIBRIUM);
+        self.data.resize(frames * self.channels(), T::EQUILIBRIUM);
     }
 }

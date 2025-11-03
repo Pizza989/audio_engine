@@ -13,6 +13,7 @@ thiserror = "2.0.16"
 dasp = "0.11.0"
 time = { path = "crates/time" }
 audio_buffer = { path = "crates/audio_buffer" }
+audio_graph = { path = "crates/audio_graph" }
 
 [workspace]
 members = ["crates/time", "crates/audio_buffer", "crates/audio_graph"]

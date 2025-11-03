@@ -1,21 +1,16 @@
-use audio_buffer::{buffers::interleaved_dynamic::InterleavedDynamicBuffer, core::Buffer};
-use std::{collections::VecDeque, path::PathBuf, sync::Arc};
-
-use arc_swap::ArcSwap;
-use audio_engine::{
-    audio::{
-        cache::{AudioBufferCache, BufferKey},
-        shared_buffer::SharedBuffer,
-    },
-    timeline::{BlockEvent, Clip, Timeline},
+use audio_buffer::{
+    buffers::{fixed_frames::FixedFrameBuffer, interleaved::InterleavedBuffer},
+    core::{Buffer, BufferMut},
 };
-// use dsp::{Graph, Node};
+use audio_engine::{
+    memory::BufferStorage,
+    timeline::{Clip, Timeline},
+};
 use interavl::IntervalTree;
-use once_cell::sync::Lazy;
+use std::{collections::VecDeque, path::PathBuf, time::Duration};
 use time::{FrameTime, MusicalTime, SampleRate};
 
-static AUDIO_CACHE: Lazy<ArcSwap<AudioBufferCache<InterleavedDynamicBuffer<f32>>>> =
-    Lazy::new(|| ArcSwap::from_pointee(AudioBufferCache::new()));
+use audio_engine::timeline::BlockEvent;
 
 struct AudioNode {
     events: VecDeque<BlockEvent>,
@@ -27,46 +22,37 @@ impl AudioNode {
     }
 }
 
-// impl Node<[f32; 2]> for AudioNode {
-//     fn audio_requested(&mut self, buffer: &mut [[f32; 2]], sample_hz: f64) {}
-// }
-
-fn insert_buffer(buffer: InterleavedDynamicBuffer<f32>) -> BufferKey {
-    let current_cache = AUDIO_CACHE.load_full();
-
-    let (new_cache, key) = AudioBufferCache::from_slotmap(current_cache.buffers.clone())
-        .insert(SharedBuffer::new(buffer));
-
-    AUDIO_CACHE.store(Arc::new(new_cache));
-    key
-}
-
 fn main() {
     let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
+    let mut storage = BufferStorage::<InterleavedBuffer<f32>>::new();
 
-    let key = insert_buffer(
+    let key = storage.insert(
         audio_buffer::loader::load(assets_dir.join("synth_keys_48000_16bit.wav"))
             .expect("failed to load audio"),
     );
 
-    let buffer = audio_buffer::loader::load::<f32>(assets_dir.join("synth_keys_48000_16bit.wav"))
-        .expect("failed to load audio");
+    let mut timeline = Timeline::new(120.0, SampleRate::default(), IntervalTree::default());
+    timeline
+        .insert(
+            MusicalTime::from_fractional_beats::<8>(3, 1)
+                ..MusicalTime::from_fractional_beats::<8>(4, 0),
+            Clip {
+                buffer: key,
+                offset: FrameTime::new(0),
+            },
+        )
+        .unwrap();
 
-    for frame in buffer.iter_frames() {
-        println!("{:?}", frame);
+    let block_buffer = FixedFrameBuffer::<f32, 256>::with_capacity(2, 44100);
+    for block_events in timeline.iter_blocks(FrameTime::new(256)) {
+        for block_event in block_events {
+            let buffer = storage.get(block_event.event.buffer);
+            block_buffer.map_frames_mut(
+                |out_frame, out_index| {},
+                Some(block_event.offset.0 as usize),
+            );
+        }
     }
-
-    // let mut timeline = Timeline::new(120.0, SampleRate::default(), IntervalTree::default());
-    // timeline
-    //     .insert(
-    //         MusicalTime::from_fractional_beats::<8>(3, 1)
-    //             ..MusicalTime::from_fractional_beats::<8>(4, 0),
-    //         Clip {
-    //             buffer: key,
-    //             offset: FrameTime::new(0),
-    //         },
-    //     )
-    //     .unwrap();
 
     // let mut graph = Graph::new();
     // let audio_node_index = graph.add_node(AudioNode {

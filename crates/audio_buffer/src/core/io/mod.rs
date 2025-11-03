@@ -1,6 +1,9 @@
+use dasp::Sample;
+
 use crate::core::{
     Buffer, BufferMut,
     axis::{BufferAxis, BufferAxisMut},
+    io::error::IoError,
 };
 
 pub mod error;
@@ -8,26 +11,46 @@ pub mod writer;
 
 // TODO: Fix the below regression
 // Apparently you cannot iterate over the samples of a frame that was borrowed while iterating over a buffer
-pub fn mix_buffers<T: dasp::Sample + 'static, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
+pub fn mix_buffers<T: Sample + 'static, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
     input: &I,
     output: &mut O,
-) -> usize {
+) -> Result<usize, IoError> {
+    if input.channels() != output.channels() {
+        return Err(IoError::ChannelMismatch(
+            output.channels(),
+            input.channels(),
+        ));
+    }
+
     let mut written = 0;
 
-    for im_frame in input.iter_frames() {
-        for im_sample in im_frame.iter_samples() {}
-    }
+    output.map_frames_mut(
+        |mut out_frame, frame_index| -> Option<()> {
+            match input.get_frame(frame_index) {
+                Some(in_frame) => {
+                    let result = Some(out_frame.map_samples_mut(|out_sample, sample_index| {
+                    match in_frame.get_sample(sample_index) {
+                        Some(in_sample) => {
+                            *out_sample =
+                                out_sample.add_amp(dasp::Sample::to_signed_sample(*in_sample));
+                            Some(())
+                        }
+                        None => {
+                            panic!(
+                                "channel mismatch between input and output buffers must not occur"
+                            )
+                        }
+                    }
+                }));
 
-    // let mut frame_iter = output.iter_frames_mut();
-    // let mut frame = frame_iter.next().unwrap();
-    // let mut sample_iter = frame.iter_samples_mut();
+                    written += 1;
+                    result
+                }
+                None => None,
+            }
+        },
+        None,
+    );
 
-    for (mut dst_frame, src_frame) in output.iter_frames_mut().zip(input.iter_frames()) {
-        for (s, d) in src_frame.iter_samples().zip(dst_frame.iter_samples_mut()) {
-            *d = d.add_amp(s.to_signed_sample());
-        }
-        written += 1;
-    }
-
-    written
+    Ok(written)
 }

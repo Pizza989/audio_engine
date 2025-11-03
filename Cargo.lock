@@ -36,6 +36,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "audio_buffer",
+ "audio_graph",
  "dasp",
  "interavl",
  "once_cell",

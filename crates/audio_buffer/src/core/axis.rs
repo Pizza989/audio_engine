@@ -1,7 +1,5 @@
 use std::{convert::AsRef, marker::PhantomData};
 
-use crate::core::stride::{StridedSlice, StridedSliceMut};
-
 pub trait BufferAxis<T> {
     fn get_sample(&self, index: usize) -> Option<&T>;
     fn iter_samples(&self) -> BufferAxisIter<'_, Self, T>
@@ -40,10 +38,20 @@ where
 
 pub trait BufferAxisMut<'a, T>: BufferAxis<T> {
     fn get_sample_mut(&mut self, index: usize) -> Option<&mut T>;
-
-    fn iter_samples_mut(&'a mut self) -> impl Iterator<Item = &'a mut T>
+    fn map_samples_mut<F, R>(&mut self, mut f: F)
     where
-        T: 'a;
+        F: for<'sample> FnMut(&'sample mut T, usize) -> Option<R>,
+    {
+        let mut index = 0;
+        while let Some(sample) = self.get_sample_mut(index) {
+            match f(sample, index) {
+                Some(_) => {
+                    index += 1;
+                }
+                None => break,
+            };
+        }
+    }
 }
 
 impl<T, U> BufferAxis<T> for U
@@ -61,37 +69,5 @@ where
 {
     fn get_sample_mut(&mut self, index: usize) -> Option<&mut T> {
         self.as_mut().get_mut(index)
-    }
-
-    fn iter_samples_mut(&'a mut self) -> impl Iterator<Item = &'a mut T>
-    where
-        T: 'a,
-    {
-        self.as_mut().iter_mut()
-    }
-}
-
-impl<T> BufferAxis<T> for StridedSlice<'_, T> {
-    fn get_sample(&self, index: usize) -> Option<&T> {
-        self.get(index)
-    }
-}
-
-impl<T> BufferAxis<T> for StridedSliceMut<'_, T> {
-    fn get_sample(&self, index: usize) -> Option<&T> {
-        self.get(index)
-    }
-}
-
-impl<'a, T> BufferAxisMut<'a, T> for StridedSliceMut<'_, T> {
-    fn get_sample_mut(&mut self, index: usize) -> Option<&mut T> {
-        self.get_mut(index)
-    }
-
-    fn iter_samples_mut(&'a mut self) -> impl Iterator<Item = &'a mut T>
-    where
-        T: 'a,
-    {
-        self.iter_mut()
     }
 }
