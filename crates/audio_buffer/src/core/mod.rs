@@ -88,14 +88,18 @@ pub trait BufferMut: Buffer {
         }
     }
 
-    fn map_channels_mut<F>(&mut self, mut f: F)
+    fn map_channels_mut<F, R>(&mut self, mut f: F, offset: Option<usize>)
     where
-        F: for<'channel> FnMut(Self::ChannelMut<'channel>, usize),
+        F: for<'channel> FnMut(Self::ChannelMut<'channel>, usize) -> Option<R>,
     {
         let num_channels = self.channels();
-        for index in 0..num_channels {
-            self.with_channel_mut(index, |frame| f(frame, index))
-                .expect("index is never out of bounds");
+        for index in offset.unwrap_or(0)..num_channels {
+            if let None = self
+                .with_channel_mut(index, |frame| f(frame, index))
+                .expect("index is never out of bounds")
+            {
+                break;
+            };
         }
     }
 }

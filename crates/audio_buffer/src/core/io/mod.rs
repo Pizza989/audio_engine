@@ -9,9 +9,13 @@ use crate::core::{
 pub mod error;
 pub mod writer;
 
-// TODO: Fix the below regression
-// Apparently you cannot iterate over the samples of a frame that was borrowed while iterating over a buffer
-pub fn mix_buffers<T: Sample + 'static, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
+pub fn mix_channels<T: Sample, I: BufferAxis<T>, O: BufferMut<Sample = T>>(
+    input: &I,
+    output: &mut O,
+) {
+}
+
+pub fn mix_buffers<T: Sample, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
     input: &I,
     output: &mut O,
 ) -> Result<usize, IoError> {
