@@ -7,6 +7,7 @@ use audio_buffer::core::axis::BufferAxisMut;
 use audio_buffer::dasp;
 use daggy::petgraph::visit::IntoNeighbors;
 use daggy::{Dag, EdgeIndex, NodeIndex, Walker, petgraph};
+use time::FrameTime;
 use time::SampleRate;
 
 use crate::buffer_pool::BufferPool;
@@ -34,7 +35,7 @@ where
     dag: Dag<N, Connection>,
     execution_order: Vec<NodeIndex>,
     buffer_pool: BufferPool<T>,
-    block_size: usize,
+    block_size: FrameTime,
     sample_rate: SampleRate,
     output: NodeIndex,
 }
@@ -44,7 +45,7 @@ where
     T: dasp::Sample + 'static,
     N: processor::AudioProcessor<T>,
 {
-    pub fn new(node: N, sample_rate: SampleRate, block_size: usize) -> (Self, NodeIndex) {
+    pub fn new(node: N, sample_rate: SampleRate, block_size: FrameTime) -> (Self, NodeIndex) {
         let mut graph = Self {
             dag: Dag::new(),
             execution_order: vec![],
@@ -141,7 +142,7 @@ where
 
     // Invalid States:
     // - buffer pool could be out of date
-    pub fn set_block_size(&mut self, block_size: usize) -> usize {
+    pub fn set_block_size(&mut self, block_size: FrameTime) -> FrameTime {
         let old = self.block_size;
         self.block_size = block_size;
 
@@ -292,6 +293,11 @@ where
 
     pub fn get_node_config(&self, index: NodeIndex) -> Option<ProcessorConfiguration> {
         self.dag.node_weight(index).map(|node| node.config())
+    }
+
+    // TODO: might be problematic with reconfiguration
+    pub fn get_dag(&self) -> &Dag<N, Connection> {
+        &self.dag
     }
 
     pub fn sample_rate(&self) -> SampleRate {

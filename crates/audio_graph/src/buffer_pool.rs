@@ -4,11 +4,11 @@ use std::{
 };
 
 use audio_buffer::buffers::interleaved::InterleavedBuffer;
-use time::SampleRate;
+use time::{FrameTime, SampleRate};
 
 pub struct BufferPool<T> {
     // (channels, buffer_size)
-    free: HashMap<(usize, usize), VecDeque<InterleavedBuffer<T>>>,
+    free: HashMap<(usize, FrameTime), VecDeque<InterleavedBuffer<T>>>,
     sample_rate: SampleRate,
 }
 
@@ -23,7 +23,7 @@ where
         }
     }
 
-    pub fn allocate_buffer(&mut self, channels: usize, buffer_size: usize) {
+    pub fn allocate_buffer(&mut self, channels: usize, buffer_size: FrameTime) {
         match self.free.get_mut(&(channels, buffer_size)) {
             Some(queue) => queue.push_front(InterleavedBuffer::with_capacity(
                 NonZero::new(channels).unwrap(),
@@ -42,7 +42,7 @@ where
         }
     }
 
-    pub fn aquire(&mut self, channels: usize, buffer_size: usize) -> InterleavedBuffer<T> {
+    pub fn aquire(&mut self, channels: usize, buffer_size: FrameTime) -> InterleavedBuffer<T> {
         match self.free.get_mut(&(channels, buffer_size)) {
             Some(queue) => match queue.pop_front() {
                 Some(buffer) => buffer,
@@ -55,7 +55,7 @@ where
         }
     }
 
-    pub fn ensure_capacity(&mut self, channels: usize, buffer_size: usize, amount: usize) {
+    pub fn ensure_capacity(&mut self, channels: usize, buffer_size: FrameTime, amount: usize) {
         let required = match self.free.get(&(channels, buffer_size)) {
             Some(queue) => amount - queue.len(),
             None => amount,

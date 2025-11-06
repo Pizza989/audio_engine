@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use time::SampleRate;
+use time::{FrameTime, SampleRate};
 
 use self::iter::ChannelIter;
 use crate::{
@@ -47,9 +47,13 @@ impl<T> InterleavedBuffer<T> {
         }
     }
 
-    pub fn with_capacity(channels: NonZeroUsize, sample_rate: SampleRate, frames: usize) -> Self {
+    pub fn with_capacity(
+        channels: NonZeroUsize,
+        sample_rate: SampleRate,
+        frames: FrameTime,
+    ) -> Self {
         Self {
-            data: Vec::<T>::with_capacity(frames * channels.get()),
+            data: Vec::<T>::with_capacity((frames * channels.get() as u64).0 as usize),
             channels,
             sample_rate,
         }

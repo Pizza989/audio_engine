@@ -31,7 +31,7 @@ pub fn load<T: ConvertibleSample + dasp::Sample + 'static>(
     let mut final_buffer = InterleavedBuffer::<T>::with_capacity(
         source.num_channels,
         source.sample_rate.into(),
-        track.codec_params.n_frames.unwrap_or(0) as usize,
+        track.codec_params.n_frames.unwrap_or(0).into(),
     );
     let mut writer = Writer::new(&mut final_buffer);
 

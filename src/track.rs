@@ -5,27 +5,43 @@ use audio_graph::{
     daggy::NodeIndex,
     processor::{AudioProcessor, PassThrough},
 };
-use time::SampleRate;
+use time::{FrameTime, SampleRate};
+
+use crate::playlist::Playlist;
 
 pub struct Track<T: audio_buffer::dasp::Sample> {
     graph: AudioGraph<T, Box<dyn AudioProcessor<T>>>,
+    playlist: Playlist,
+    // INVARIANT: `input` must never dangle
     input: NodeIndex,
 }
 
 impl<T: audio_buffer::dasp::Sample + 'static> Track<T> {
-    /// Convinience method to create a stereo track from its configuration
-    pub fn from_config(sample_rate: SampleRate, block_size: usize) -> Self {
+    /// Convinience constructor to create a stereo track from its configuration
+    pub fn from_config(sample_rate: SampleRate, block_size: FrameTime) -> Self {
         let (graph, input) = AudioGraph::<T, Box<dyn AudioProcessor<T>>>::new(
             Box::new(PassThrough::new(2, 2)),
             sample_rate,
             block_size,
         );
 
-        Self { graph, input }
+        Self {
+            graph,
+            input,
+            playlist: Playlist::empty(),
+        }
     }
 
     pub fn from_graph(graph: AudioGraph<T, Box<dyn AudioProcessor<T>>>, input: NodeIndex) -> Self {
-        Self { graph, input }
+        Self {
+            graph,
+            input,
+            playlist: Playlist::empty(),
+        }
+    }
+
+    pub fn playlist(&self) -> &Playlist {
+        &self.playlist
     }
 }
 

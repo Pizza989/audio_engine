@@ -26,6 +26,8 @@ pub struct MusicalTime {
 }
 
 impl MusicalTime {
+    pub const ZERO: Self = MusicalTime { beats: 0, ticks: 0 };
+
     /// * `beats` - The time in musical beats.
     /// * `ticks` - The number of ticks (after the time in `beats`) (Note this value
     /// will be constrained to the range `[0, 1,241,856,000)`).
