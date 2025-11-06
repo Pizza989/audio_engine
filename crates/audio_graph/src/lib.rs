@@ -13,6 +13,7 @@ use crate::buffer_pool::BufferPool;
 use crate::error::GraphError;
 use crate::pin_matrix::PinMatrix;
 use crate::processor::AudioProcessor;
+use crate::processor::ProcessorConfiguration;
 
 pub use daggy;
 
@@ -35,7 +36,6 @@ where
     buffer_pool: BufferPool<T>,
     block_size: usize,
     sample_rate: SampleRate,
-    input: NodeIndex,
     output: NodeIndex,
 }
 
@@ -44,22 +44,18 @@ where
     T: dasp::Sample + 'static,
     N: processor::AudioProcessor<T>,
 {
-    pub fn new(node: N, sample_rate: SampleRate, block_size: usize) -> Self {
+    pub fn new(node: N, sample_rate: SampleRate, block_size: usize) -> (Self, NodeIndex) {
         let mut graph = Self {
             dag: Dag::new(),
             execution_order: vec![],
             buffer_pool: BufferPool::new(sample_rate),
             sample_rate: sample_rate,
             block_size,
-            input: 0.into(),
             output: 0.into(),
         };
 
         let node_idx = graph.add_node(node);
 
-        graph
-            .set_input_index(node_idx)
-            .expect("node_idx is not dangline");
         graph
             .set_output_index(node_idx)
             .expect("node_idx is not dangling");
@@ -67,7 +63,7 @@ where
         graph.update_buffer_pool();
         graph.recompute_execution_order();
 
-        graph
+        (graph, node_idx)
     }
 
     // Invalid States:
@@ -93,8 +89,10 @@ where
             .node_weight(dst)
             .ok_or(GraphError::WouldInvalidNode(dst))?;
 
-        if !(pin_matrix.input_channels() == src_node.output_channels()
-            && pin_matrix.output_channels() == dst_node.input_channels())
+        let src_config = src_node.config();
+        let dst_config = dst_node.config();
+        if !(pin_matrix.input_channels() == src_config.num_output_channels
+            && pin_matrix.output_channels() == dst_config.num_input_channels)
         {
             return Err(GraphError::WouldInvalidPinMatrix);
         }
@@ -123,24 +121,11 @@ where
     pub fn remove_node(&mut self, index: NodeIndex) -> Result<Option<N>, GraphError> {
         if index == self.output {
             return Err(GraphError::WouldInvalidNode(self.output));
-        } else if index == self.input {
-            return Err(GraphError::WouldInvalidNode(self.input));
         } else if self.dag.neighbors(index).peekable().peek().is_some() {
             return Err(GraphError::WouldDanglingNodeInConnection);
         }
 
         Ok(self.dag.remove_node(index))
-    }
-
-    // Invalid States:
-    // - index could be dangling
-    pub fn set_input_index(&mut self, index: NodeIndex) -> Result<(), GraphError> {
-        if self.dag.node_weight(index).is_some() {
-            self.input = index;
-            Ok(())
-        } else {
-            Err(GraphError::WouldInvalidNode(index))
-        }
     }
 
     // Invalid States:
@@ -170,7 +155,11 @@ where
     T: dasp::Sample + 'static,
     N: processor::AudioProcessor<T>,
 {
-    fn process_linear(&mut self, input: &InterleavedBuffer<T>, output: &mut InterleavedBuffer<T>) {
+    pub fn process(
+        &mut self,
+        inputs: HashMap<NodeIndex, &InterleavedBuffer<T>>,
+        output: &mut InterleavedBuffer<T>,
+    ) {
         let mut node_outputs: HashMap<NodeIndex, InterleavedBuffer<T>> = HashMap::new();
 
         for &node_idx in &self.execution_order {
@@ -178,52 +167,57 @@ where
                 .dag
                 .node_weight(node_idx)
                 .expect("must be valid due to invariants");
+
+            let node_config = node.config();
+
             // node_input has as many channels as node_idx has input channels
-            let node_input = if node_idx == self.input {
-                // input must have as many channels as self.input has input channels
-                RefOrOwned::Ref(input)
-            } else {
-                // mixed must have as many channels as node_idx has input channels
-                let mut mixed = self
-                    .buffer_pool
-                    .aquire(node.input_channels(), self.block_size);
+            let node_input = match inputs.get(&node_idx) {
+                Some(input) => RefOrOwned::Ref(*input),
+                None => {
+                    // mixed must have as many channels as node_idx has input channels
+                    let mut mixed = self
+                        .buffer_pool
+                        .aquire(node_config.num_input_channels, self.block_size);
 
-                for (edge, parent) in self.dag.parents(node_idx).iter(&self.dag) {
-                    let parent_out = node_outputs
-                        .get(&parent)
-                        .expect("must be cached due to execution order");
+                    for (edge, parent) in self.dag.parents(node_idx).iter(&self.dag) {
+                        let parent_out = node_outputs
+                            .get(&parent)
+                            .expect("must be cached due to execution order");
 
-                    let connection = self.dag.edge_weight(edge).expect("exists");
+                        let connection = self.dag.edge_weight(edge).expect("exists");
 
-                    for (parent_channel_idx, mixed_channel_idx) in
-                        connection.matrix.channel_connections()
-                    {
-                        let parent_channel = parent_out
-                            .get_channel(parent_channel_idx)
-                            .expect("must be valid due to invariants");
+                        for (parent_channel_idx, mixed_channel_idx) in
+                            connection.matrix.channel_connections()
+                        {
+                            let parent_channel = parent_out
+                                .get_channel(parent_channel_idx)
+                                .expect("must be valid due to invariants");
 
-                        mixed.map_channels_mut(
-                            |mut mixed_channel, _| {
-                                mixed_channel.map_samples_mut(|out_sample, sample_index| {
-                                    match parent_channel.get(sample_index) {
-                                        Some(in_sample) => {
-                                            *out_sample = out_sample.add_amp(
-                                                dasp::Sample::to_signed_sample(*in_sample),
-                                            );
-                                            Some(())
+                            mixed.map_channels_mut(
+                                |mut mixed_channel, _| {
+                                    mixed_channel.map_samples_mut(|out_sample, sample_index| {
+                                        match parent_channel.get(sample_index) {
+                                            Some(in_sample) => {
+                                                *out_sample = out_sample.add_amp(
+                                                    dasp::Sample::to_signed_sample(*in_sample),
+                                                );
+                                                Some(())
+                                            }
+                                            None => {
+                                                unreachable!(
+                                                    "buffers should always have the same size"
+                                                )
+                                            }
                                         }
-                                        None => {
-                                            unreachable!("buffers should always have the same size")
-                                        }
-                                    }
-                                });
-                                None::<usize>
-                            },
-                            Some(mixed_channel_idx),
-                        );
+                                    });
+                                    None::<usize>
+                                },
+                                Some(mixed_channel_idx),
+                            );
+                        }
                     }
+                    RefOrOwned::Owned(mixed)
                 }
-                RefOrOwned::Owned(mixed)
             };
 
             // node_output has as many channels as node_idx has output channels
@@ -237,7 +231,7 @@ where
             } else {
                 let mut node_output = self
                     .buffer_pool
-                    .aquire(node.output_channels(), self.block_size);
+                    .aquire(node_config.num_output_channels, self.block_size);
                 self.dag
                     .node_weight_mut(node_idx)
                     .expect("must be valid due to invariants")
@@ -262,8 +256,9 @@ where
         }
 
         for node in self.dag.node_weights_mut() {
-            increment(&mut buffers_required, node.output_channels());
-            increment(&mut buffers_required, node.input_channels());
+            let config = node.config();
+            increment(&mut buffers_required, config.num_output_channels);
+            increment(&mut buffers_required, config.num_input_channels);
         }
 
         for (channels, amount) in buffers_required {
@@ -285,50 +280,22 @@ where
         self.dag.add_node(weight)
     }
 
-    pub fn get_input(&self) -> &N {
-        self.dag
-            .node_weight(self.input)
-            .expect("invariant: self.input must always be valid")
-    }
-
     pub fn get_output(&self) -> &N {
         self.dag
             .node_weight(self.output)
             .expect("invariant: self.output must always be valid")
     }
 
-    pub fn get_input_index(&self) -> NodeIndex {
-        self.input
-    }
-
     pub fn get_output_index(&self) -> NodeIndex {
         self.output
     }
 
+    pub fn get_node_config(&self, index: NodeIndex) -> Option<ProcessorConfiguration> {
+        self.dag.node_weight(index).map(|node| node.config())
+    }
+
     pub fn sample_rate(&self) -> SampleRate {
         self.sample_rate
-    }
-}
-
-impl<T, N> AudioProcessor<T> for AudioGraph<T, N>
-where
-    T: dasp::Sample + 'static,
-    N: processor::AudioProcessor<T>,
-{
-    fn process_unchecked(
-        &mut self,
-        input: &InterleavedBuffer<T>,
-        output: &mut InterleavedBuffer<T>,
-    ) {
-        self.process_linear(input, output);
-    }
-
-    fn input_channels(&self) -> usize {
-        self.get_input().input_channels()
-    }
-
-    fn output_channels(&self) -> usize {
-        self.get_output().output_channels()
     }
 }
 

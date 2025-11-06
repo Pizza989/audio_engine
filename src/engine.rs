@@ -9,7 +9,7 @@ where
     T: audio_buffer::dasp::Sample + 'static,
 {
     graph: AudioGraph<T, Track<T>>,
-    timeline: Timeline,
+    _timeline: Timeline,
     // master must always be valid
     master: NodeIndex,
     sample_rate: SampleRate,
@@ -22,15 +22,14 @@ where
 {
     pub fn new(bpm: f64, sample_rate: SampleRate, block_size: usize) -> Self {
         let master_graph = Track::from_config(sample_rate, block_size);
-        let graph = AudioGraph::new(master_graph, sample_rate, block_size);
-        let master_idx = graph.get_output_index();
+        let (graph, master_idx) = AudioGraph::new(master_graph, sample_rate, block_size);
 
         Self {
             graph: graph,
             master: master_idx,
             sample_rate,
             block_size,
-            timeline: Timeline::new(bpm, sample_rate, IntervalTree::default()),
+            _timeline: Timeline::new(bpm, sample_rate, IntervalTree::default()),
         }
     }
 

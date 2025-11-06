@@ -12,7 +12,9 @@ pub trait AudioProcessor<T: dasp::Sample> {
         input: &InterleavedBuffer<T>,
         output: &mut InterleavedBuffer<T>,
     ) -> Result<(), ProcessingError> {
-        if self.input_channels() != input.channels() || self.output_channels() != output.channels()
+        let config = self.config();
+        if config.num_input_channels != input.channels()
+            || config.num_output_channels != output.channels()
         {
             return Err(ProcessingError::InvalidBuffers);
         } else {
@@ -27,8 +29,7 @@ pub trait AudioProcessor<T: dasp::Sample> {
         output: &mut InterleavedBuffer<T>,
     );
 
-    fn input_channels(&self) -> usize;
-    fn output_channels(&self) -> usize;
+    fn config(&self) -> ProcessorConfiguration;
 }
 
 impl<T, S> AudioProcessor<S> for Box<T>
@@ -44,12 +45,8 @@ where
         (**self).process_unchecked(input, output);
     }
 
-    fn input_channels(&self) -> usize {
-        (**self).input_channels()
-    }
-
-    fn output_channels(&self) -> usize {
-        (**self).output_channels()
+    fn config(&self) -> ProcessorConfiguration {
+        (**self).config()
     }
 }
 
@@ -78,15 +75,15 @@ where
 }
 
 pub struct PassThrough {
-    input_channels: usize,
-    output_channels: usize,
+    num_input_channels: usize,
+    num_output_channels: usize,
 }
 
 impl PassThrough {
     pub fn new(input_channels: usize, output_channels: usize) -> Self {
         Self {
-            input_channels,
-            output_channels,
+            num_input_channels: input_channels,
+            num_output_channels: output_channels,
         }
     }
 }
@@ -103,11 +100,19 @@ where
         mix_buffers(input, output).expect("this is the unchecked method");
     }
 
-    fn input_channels(&self) -> usize {
-        self.input_channels
+    fn config(&self) -> ProcessorConfiguration {
+        ProcessorConfiguration {
+            num_input_channels: self.num_input_channels,
+            num_output_channels: self.num_output_channels,
+        }
     }
+}
 
-    fn output_channels(&self) -> usize {
-        self.output_channels
-    }
+pub struct ProcessorConfiguration {
+    // If these will ever be reconfigurable they will
+    // probably have to be stored here
+    // pub sample_rate: SampleRate,
+    // pub block_size: usize,
+    pub num_input_channels: usize,
+    pub num_output_channels: usize,
 }
