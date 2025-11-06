@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use time::SampleRate;
+
 use crate::core::axis::{BufferAxis, BufferAxisMut};
 
 pub mod axis;
@@ -32,11 +34,11 @@ pub trait Buffer {
         self.samples() / self.channels()
     }
     fn duration(&self) -> Duration {
-        Duration::from_secs_f64(self.frames() as f64 / self.sample_rate() as f64)
+        Duration::from_secs_f64(self.frames() as f64 / self.sample_rate())
     }
     fn channels(&self) -> usize;
     fn samples(&self) -> usize;
-    fn sample_rate(&self) -> usize;
+    fn sample_rate(&self) -> SampleRate;
 }
 
 pub trait BufferMut: Buffer {

@@ -1,83 +1,67 @@
 use std::collections::HashMap;
 
+use audio_buffer::buffers::interleaved::InterleavedBuffer;
+use audio_buffer::core::Buffer;
 use audio_buffer::core::BufferMut;
+use audio_buffer::core::axis::BufferAxisMut;
 use audio_buffer::dasp;
-use audio_buffer::{buffers::fixed_frames::FixedFrameBuffer, core::Buffer};
 use daggy::petgraph::visit::IntoNeighbors;
 use daggy::{Dag, EdgeIndex, NodeIndex, Walker, petgraph};
+use time::SampleRate;
 
 use crate::buffer_pool::BufferPool;
-use crate::error::{GraphError, ProcessingError};
+use crate::error::GraphError;
 use crate::pin_matrix::PinMatrix;
+use crate::processor::AudioProcessor;
+
+pub use daggy;
 
 pub mod buffer_pool;
 pub mod error;
 pub mod pin_matrix;
-
-pub trait AudioProcessor<T: dasp::Sample, const BLOCK_SIZE: usize> {
-    fn process(
-        &mut self,
-        input: &FixedFrameBuffer<T, BLOCK_SIZE>,
-        output: &mut FixedFrameBuffer<T, BLOCK_SIZE>,
-    ) -> Result<(), ProcessingError> {
-        if self.input_channels() != input.channels() || self.output_channels() != output.channels()
-        {
-            return Err(ProcessingError::InvalidBuffers);
-        } else {
-            self.process_unchecked(input, output);
-            Ok(())
-        }
-    }
-
-    fn process_unchecked(
-        &mut self,
-        input: &FixedFrameBuffer<T, BLOCK_SIZE>,
-        output: &mut FixedFrameBuffer<T, BLOCK_SIZE>,
-    );
-
-    fn input_channels(&self) -> usize;
-    fn output_channels(&self) -> usize;
-}
-
-pub struct AudioNode<T, const BLOCK_SIZE: usize>
-where
-    T: audio_buffer::dasp::Sample,
-{
-    processor: Box<dyn AudioProcessor<T, BLOCK_SIZE>>,
-}
+pub mod processor;
 
 pub struct Connection {
     matrix: PinMatrix,
 }
 
-pub struct AudioGraph<T, const BLOCK_SIZE: usize>
+pub struct AudioGraph<T, N>
 where
     T: dasp::Sample,
+    N: AudioProcessor<T>,
 {
-    dag: Dag<AudioNode<T, BLOCK_SIZE>, Connection>,
+    dag: Dag<N, Connection>,
     execution_order: Vec<NodeIndex>,
-    buffer_pool: BufferPool<T, BLOCK_SIZE>,
-    sample_rate: usize,
+    buffer_pool: BufferPool<T>,
+    block_size: usize,
+    sample_rate: SampleRate,
     input: NodeIndex,
     output: NodeIndex,
 }
 
-impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZE> {
-    pub fn new(sample_rate: usize, node: AudioNode<T, BLOCK_SIZE>) -> Self {
+impl<T, N> AudioGraph<T, N>
+where
+    T: dasp::Sample + 'static,
+    N: processor::AudioProcessor<T>,
+{
+    pub fn new(node: N, sample_rate: SampleRate, block_size: usize) -> Self {
         let mut graph = Self {
             dag: Dag::new(),
             execution_order: vec![],
             buffer_pool: BufferPool::new(sample_rate),
             sample_rate: sample_rate,
+            block_size,
             input: 0.into(),
             output: 0.into(),
         };
 
         let node_idx = graph.add_node(node);
 
-        graph.set_input(node_idx).expect("node_idx is not dangline");
         graph
-            .set_output(node_idx)
+            .set_input_index(node_idx)
+            .expect("node_idx is not dangline");
+        graph
+            .set_output_index(node_idx)
             .expect("node_idx is not dangling");
 
         graph.update_buffer_pool();
@@ -109,8 +93,8 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
             .node_weight(dst)
             .ok_or(GraphError::WouldInvalidNode(dst))?;
 
-        if !(pin_matrix.input_channels() == src_node.processor.output_channels()
-            && pin_matrix.output_channels() == dst_node.processor.input_channels())
+        if !(pin_matrix.input_channels() == src_node.output_channels()
+            && pin_matrix.output_channels() == dst_node.input_channels())
         {
             return Err(GraphError::WouldInvalidPinMatrix);
         }
@@ -136,10 +120,7 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
     // - index could be self.input
     // - index could be self.output
     // - index could be part of a connection
-    pub fn remove_node(
-        &mut self,
-        index: NodeIndex,
-    ) -> Result<Option<AudioNode<T, BLOCK_SIZE>>, GraphError> {
+    pub fn remove_node(&mut self, index: NodeIndex) -> Result<Option<N>, GraphError> {
         if index == self.output {
             return Err(GraphError::WouldInvalidNode(self.output));
         } else if index == self.input {
@@ -153,7 +134,7 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
 
     // Invalid States:
     // - index could be dangling
-    pub fn set_input(&mut self, index: NodeIndex) -> Result<(), GraphError> {
+    pub fn set_input_index(&mut self, index: NodeIndex) -> Result<(), GraphError> {
         if self.dag.node_weight(index).is_some() {
             self.input = index;
             Ok(())
@@ -164,7 +145,7 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
 
     // Invalid States:
     // - index could be dangling
-    pub fn set_output(&mut self, index: NodeIndex) -> Result<(), GraphError> {
+    pub fn set_output_index(&mut self, index: NodeIndex) -> Result<(), GraphError> {
         if self.dag.node_weight(index).is_some() {
             self.output = index;
             Ok(())
@@ -172,15 +153,25 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
             Err(GraphError::WouldInvalidNode(index))
         }
     }
+
+    // Invalid States:
+    // - buffer pool could be out of date
+    pub fn set_block_size(&mut self, block_size: usize) -> usize {
+        let old = self.block_size;
+        self.block_size = block_size;
+
+        self.update_buffer_pool();
+        old
+    }
 }
 
-impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZE> {
-    fn process_linear(
-        &mut self,
-        input: &FixedFrameBuffer<T, BLOCK_SIZE>,
-        output: &mut FixedFrameBuffer<T, BLOCK_SIZE>,
-    ) {
-        let mut node_outputs: HashMap<NodeIndex, FixedFrameBuffer<T, BLOCK_SIZE>> = HashMap::new();
+impl<T, N> AudioGraph<T, N>
+where
+    T: dasp::Sample + 'static,
+    N: processor::AudioProcessor<T>,
+{
+    fn process_linear(&mut self, input: &InterleavedBuffer<T>, output: &mut InterleavedBuffer<T>) {
+        let mut node_outputs: HashMap<NodeIndex, InterleavedBuffer<T>> = HashMap::new();
 
         for &node_idx in &self.execution_order {
             let node = self
@@ -193,7 +184,9 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
                 RefOrOwned::Ref(input)
             } else {
                 // mixed must have as many channels as node_idx has input channels
-                let mut mixed = self.buffer_pool.aquire(node.processor.input_channels());
+                let mut mixed = self
+                    .buffer_pool
+                    .aquire(node.input_channels(), self.block_size);
 
                 for (edge, parent) in self.dag.parents(node_idx).iter(&self.dag) {
                     let parent_out = node_outputs
@@ -210,13 +203,20 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
                             .expect("must be valid due to invariants");
 
                         mixed.map_channels_mut(
-                            |mixed_channel, _| {
-                                for (in_sample, out_sample) in
-                                    parent_channel.iter().zip(mixed_channel.iter_mut())
-                                {
-                                    *out_sample = out_sample
-                                        .add_amp(dasp::Sample::to_signed_sample(*in_sample));
-                                }
+                            |mut mixed_channel, _| {
+                                mixed_channel.map_samples_mut(|out_sample, sample_index| {
+                                    match parent_channel.get(sample_index) {
+                                        Some(in_sample) => {
+                                            *out_sample = out_sample.add_amp(
+                                                dasp::Sample::to_signed_sample(*in_sample),
+                                            );
+                                            Some(())
+                                        }
+                                        None => {
+                                            unreachable!("buffers should always have the same size")
+                                        }
+                                    }
+                                });
                                 None::<usize>
                             },
                             Some(mixed_channel_idx),
@@ -231,16 +231,16 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
                 self.dag
                     .node_weight_mut(node_idx)
                     .expect("must be valid due to invariants")
-                    .processor
                     .process_unchecked(node_input.as_ref(), output);
 
                 return;
             } else {
-                let mut node_output = self.buffer_pool.aquire(node.processor.output_channels());
+                let mut node_output = self
+                    .buffer_pool
+                    .aquire(node.output_channels(), self.block_size);
                 self.dag
                     .node_weight_mut(node_idx)
                     .expect("must be valid due to invariants")
-                    .processor
                     .process_unchecked(node_input.as_ref(), &mut node_output);
 
                 node_outputs.insert(node_idx, node_output);
@@ -248,6 +248,7 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
         }
     }
 
+    // TODO: free buffers that aren't neccessary
     fn update_buffer_pool(&mut self) {
         let mut buffers_required: HashMap<usize, usize> = HashMap::new();
 
@@ -261,12 +262,13 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
         }
 
         for node in self.dag.node_weights_mut() {
-            increment(&mut buffers_required, node.processor.output_channels());
-            increment(&mut buffers_required, node.processor.input_channels());
+            increment(&mut buffers_required, node.output_channels());
+            increment(&mut buffers_required, node.input_channels());
         }
 
         for (channels, amount) in buffers_required {
-            self.buffer_pool.ensure_capacity(channels, amount);
+            self.buffer_pool
+                .ensure_capacity(channels, self.block_size, amount);
         }
     }
 
@@ -278,45 +280,55 @@ impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioGraph<T, BLOCK_SIZ
             .collect();
     }
 
-    pub fn add_node(&mut self, weight: AudioNode<T, BLOCK_SIZE>) -> NodeIndex {
+    pub fn add_node(&mut self, weight: N) -> NodeIndex {
         self.update_buffer_pool();
         self.dag.add_node(weight)
     }
 
-    pub fn get_input(&self) -> &AudioNode<T, BLOCK_SIZE> {
+    pub fn get_input(&self) -> &N {
         self.dag
             .node_weight(self.input)
             .expect("invariant: self.input must always be valid")
     }
 
-    pub fn get_output(&self) -> &AudioNode<T, BLOCK_SIZE> {
+    pub fn get_output(&self) -> &N {
         self.dag
             .node_weight(self.output)
             .expect("invariant: self.output must always be valid")
     }
 
-    pub fn sample_rate(&self) -> usize {
+    pub fn get_input_index(&self) -> NodeIndex {
+        self.input
+    }
+
+    pub fn get_output_index(&self) -> NodeIndex {
+        self.output
+    }
+
+    pub fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 }
 
-impl<T: dasp::Sample + 'static, const BLOCK_SIZE: usize> AudioProcessor<T, BLOCK_SIZE>
-    for AudioGraph<T, BLOCK_SIZE>
+impl<T, N> AudioProcessor<T> for AudioGraph<T, N>
+where
+    T: dasp::Sample + 'static,
+    N: processor::AudioProcessor<T>,
 {
     fn process_unchecked(
         &mut self,
-        input: &FixedFrameBuffer<T, BLOCK_SIZE>,
-        output: &mut FixedFrameBuffer<T, BLOCK_SIZE>,
+        input: &InterleavedBuffer<T>,
+        output: &mut InterleavedBuffer<T>,
     ) {
         self.process_linear(input, output);
     }
 
     fn input_channels(&self) -> usize {
-        self.get_input().processor.input_channels()
+        self.get_input().input_channels()
     }
 
     fn output_channels(&self) -> usize {
-        self.get_output().processor.output_channels()
+        self.get_output().output_channels()
     }
 }
 

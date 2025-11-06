@@ -1,5 +1,7 @@
 use std::num::NonZeroUsize;
 
+use time::SampleRate;
+
 use self::iter::ChannelIter;
 use crate::{
     buffers::view::{Index, IndexMut, InjectiveFn, MutableView, View},
@@ -33,11 +35,11 @@ impl<T> IndexMut<usize> for Vec<T> {
 pub struct InterleavedBuffer<T> {
     data: Vec<T>,
     channels: NonZeroUsize,
-    sample_rate: usize,
+    sample_rate: SampleRate,
 }
 
 impl<T> InterleavedBuffer<T> {
-    pub fn new(channels: NonZeroUsize, sample_rate: usize) -> Self {
+    pub fn new(channels: NonZeroUsize, sample_rate: SampleRate) -> Self {
         Self {
             data: Vec::<T>::new(),
             channels,
@@ -45,9 +47,9 @@ impl<T> InterleavedBuffer<T> {
         }
     }
 
-    pub fn with_capacity(channels: NonZeroUsize, sample_rate: usize, capacity: usize) -> Self {
+    pub fn with_capacity(channels: NonZeroUsize, sample_rate: SampleRate, frames: usize) -> Self {
         Self {
-            data: Vec::<T>::with_capacity(capacity),
+            data: Vec::<T>::with_capacity(frames * channels.get()),
             channels,
             sample_rate,
         }
@@ -109,7 +111,7 @@ impl<T: dasp::Sample> Buffer for InterleavedBuffer<T> {
         self.channels.into()
     }
 
-    fn sample_rate(&self) -> usize {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 }

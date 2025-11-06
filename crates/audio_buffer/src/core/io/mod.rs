@@ -9,12 +9,6 @@ use crate::core::{
 pub mod error;
 pub mod writer;
 
-pub fn mix_channels<T: Sample, I: BufferAxis<T>, O: BufferMut<Sample = T>>(
-    input: &I,
-    output: &mut O,
-) {
-}
-
 pub fn mix_buffers<T: Sample, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
     input: &I,
     output: &mut O,

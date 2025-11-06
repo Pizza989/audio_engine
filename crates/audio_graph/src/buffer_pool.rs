@@ -1,42 +1,49 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    num::NonZero,
+};
 
-use audio_buffer::buffers::fixed_frames::FixedFrameBuffer;
+use audio_buffer::buffers::interleaved::InterleavedBuffer;
+use time::SampleRate;
 
-pub struct BufferPool<T, const BLOCK_SIZE: usize> {
-    free: HashMap<usize, VecDeque<FixedFrameBuffer<T, BLOCK_SIZE>>>,
-    sample_rate: usize,
+pub struct BufferPool<T> {
+    // (channels, buffer_size)
+    free: HashMap<(usize, usize), VecDeque<InterleavedBuffer<T>>>,
+    sample_rate: SampleRate,
 }
 
-impl<T, const BLOCK_SIZE: usize> BufferPool<T, BLOCK_SIZE>
+impl<T> BufferPool<T>
 where
     T: audio_buffer::dasp::Sample,
 {
-    pub fn new(sample_rate: usize) -> Self {
+    pub fn new(sample_rate: SampleRate) -> Self {
         Self {
             free: HashMap::new(),
             sample_rate,
         }
     }
 
-    pub fn allocate_buffer(&mut self, channels: usize) {
-        match self.free.get_mut(&channels) {
-            Some(queue) => queue.push_front(FixedFrameBuffer::<T, BLOCK_SIZE>::with_capacity(
-                channels,
+    pub fn allocate_buffer(&mut self, channels: usize, buffer_size: usize) {
+        match self.free.get_mut(&(channels, buffer_size)) {
+            Some(queue) => queue.push_front(InterleavedBuffer::with_capacity(
+                NonZero::new(channels).unwrap(),
                 self.sample_rate,
+                buffer_size,
             )),
             None => {
                 let mut queue = VecDeque::new();
-                queue.push_front(FixedFrameBuffer::<T, BLOCK_SIZE>::with_capacity(
-                    channels,
+                queue.push_front(InterleavedBuffer::with_capacity(
+                    NonZero::new(channels).unwrap(),
                     self.sample_rate,
+                    buffer_size,
                 ));
-                self.free.insert(channels, queue);
+                self.free.insert((channels, buffer_size), queue);
             }
         }
     }
 
-    pub fn aquire(&mut self, channels: usize) -> FixedFrameBuffer<T, BLOCK_SIZE> {
-        match self.free.get_mut(&channels) {
+    pub fn aquire(&mut self, channels: usize, buffer_size: usize) -> InterleavedBuffer<T> {
+        match self.free.get_mut(&(channels, buffer_size)) {
             Some(queue) => match queue.pop_front() {
                 Some(buffer) => buffer,
                 None => panic!("Buffer Pool couldn't provide a buffer"),
@@ -48,14 +55,14 @@ where
         }
     }
 
-    pub fn ensure_capacity(&mut self, channels: usize, amount: usize) {
-        let required = match self.free.get(&channels) {
+    pub fn ensure_capacity(&mut self, channels: usize, buffer_size: usize, amount: usize) {
+        let required = match self.free.get(&(channels, buffer_size)) {
             Some(queue) => amount - queue.len(),
             None => amount,
         };
 
         for _ in 0..required {
-            self.allocate_buffer(channels);
+            self.allocate_buffer(channels, buffer_size);
         }
     }
 }

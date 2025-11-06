@@ -28,6 +28,7 @@ dependencies = [
  "lending-iterator",
  "symphonia",
  "thiserror",
+ "time",
 ]
 
 [[package]]
@@ -53,6 +54,7 @@ dependencies = [
  "audio_buffer",
  "daggy",
  "thiserror",
+ "time",
 ]
 
 [[package]]

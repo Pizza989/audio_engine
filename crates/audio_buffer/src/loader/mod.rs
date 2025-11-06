@@ -30,7 +30,7 @@ pub fn load<T: ConvertibleSample + dasp::Sample + 'static>(
 
     let mut final_buffer = InterleavedBuffer::<T>::with_capacity(
         source.num_channels,
-        source.sample_rate as usize,
+        source.sample_rate.into(),
         track.codec_params.n_frames.unwrap_or(0) as usize,
     );
     let mut writer = Writer::new(&mut final_buffer);
@@ -54,7 +54,7 @@ pub fn load<T: ConvertibleSample + dasp::Sample + 'static>(
                     let compat = WrapInterleaved::new(
                         buffer.samples(),
                         source.num_channels.get(),
-                        source.sample_rate as usize,
+                        source.sample_rate.into(),
                     );
                     writer.write_block_growing(&compat)?;
                 }

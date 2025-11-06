@@ -5,6 +5,7 @@ use crate::{
     },
     core::{Buffer, BufferMut},
 };
+use time::SampleRate;
 
 pub mod iter;
 
@@ -32,11 +33,11 @@ impl<T, const F: usize> IndexMut<(usize, usize)> for Vec<[T; F]> {
 
 pub struct FixedFrameBuffer<T, const F: usize> {
     data: Vec<[T; F]>,
-    sample_rate: usize,
+    sample_rate: SampleRate,
 }
 
 impl<T: dasp::Sample, const F: usize> FixedFrameBuffer<T, F> {
-    pub fn with_capacity(channels: usize, sample_rate: usize) -> Self {
+    pub fn with_capacity(channels: usize, sample_rate: SampleRate) -> Self {
         Self {
             data: vec![[T::EQUILIBRIUM; F]; channels],
             sample_rate,
@@ -102,7 +103,7 @@ impl<T: dasp::Sample, const F: usize> Buffer for FixedFrameBuffer<T, F> {
         self.channels() * F
     }
 
-    fn sample_rate(&self) -> usize {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
 }

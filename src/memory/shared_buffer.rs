@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use audio_buffer::core::Buffer;
+use time::SampleRate;
 
 pub struct SharedBuffer<B: Buffer>(Arc<B>);
 
@@ -63,7 +64,7 @@ impl<B: Buffer> Buffer for SharedBuffer<B> {
         self.0.samples()
     }
 
-    fn sample_rate(&self) -> usize {
+    fn sample_rate(&self) -> SampleRate {
         self.0.sample_rate()
     }
 }

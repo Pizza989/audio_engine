@@ -10,18 +10,6 @@ use interavl::IntervalTree;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
 use time::{FrameTime, MusicalTime, SampleRate};
 
-use audio_engine::timeline::BlockEvent;
-
-struct AudioNode {
-    events: VecDeque<BlockEvent>,
-}
-
-impl AudioNode {
-    pub fn push_event(&mut self, event: BlockEvent) {
-        self.events.push_back(event);
-    }
-}
-
 fn main() {
     let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
     let mut storage = BufferStorage::<InterleavedBuffer<f32>>::new();
@@ -42,17 +30,6 @@ fn main() {
             },
         )
         .unwrap();
-
-    let block_buffer = FixedFrameBuffer::<f32, 256>::with_capacity(2, 44100);
-    for block_events in timeline.iter_blocks(FrameTime::new(256)) {
-        for block_event in block_events {
-            let buffer = storage.get(block_event.event.buffer);
-            block_buffer.map_frames_mut(
-                |out_frame, out_index| {},
-                Some(block_event.offset.0 as usize),
-            );
-        }
-    }
 
     // let mut graph = Graph::new();
     // let audio_node_index = graph.add_node(AudioNode {
