@@ -146,4 +146,10 @@ impl<T: dasp::Sample, const FRAMES: usize> BufferMut for FixedFrameBuffer<T, FRA
             None => None,
         }
     }
+
+    fn set_to_equilibrium(&mut self) {
+        for channel in &mut self.data {
+            channel.fill(T::EQUILIBRIUM);
+        }
+    }
 }

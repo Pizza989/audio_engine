@@ -12,6 +12,7 @@ pub mod writer;
 pub fn mix_buffers<T: Sample, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
     input: &I,
     output: &mut O,
+    output_offset: Option<usize>,
 ) -> Result<usize, IoError> {
     if input.channels() != output.channels() {
         return Err(IoError::ChannelMismatch(
@@ -47,7 +48,7 @@ pub fn mix_buffers<T: Sample, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
                 None => None,
             }
         },
-        None,
+        output_offset,
     );
 
     Ok(written)

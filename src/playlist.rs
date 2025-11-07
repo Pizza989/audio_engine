@@ -1,44 +1,38 @@
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
+use audio_buffer::buffers::interleaved::InterleavedBuffer;
 use interavl::IntervalTree;
 use time::{FrameTime, MusicalTime, SampleRate};
 
-use crate::memory::BufferKey;
-
-#[derive(Debug, Clone)]
-pub struct Event {
-    pub buffer_slice_range: Range<FrameTime>,
-    pub buffer: BufferKey,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Clip {
-    pub buffer_key: BufferKey,
-    pub buffer_offset: FrameTime,
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockEvent {
+#[derive(Clone)]
+pub struct BlockEvent<T> {
     pub block_offset: FrameTime,
-    pub event: Event,
+    pub event: Event<T>,
 }
 
-fn get_intersection(
-    block_range: &Range<MusicalTime>,
-    clip_range: &Range<MusicalTime>,
-) -> Option<Range<MusicalTime>> {
-    let start = block_range.start.max(clip_range.start);
-    let end = block_range.end.min(clip_range.end);
-
-    if start < end { Some(start..end) } else { None }
+#[derive(Clone)]
+pub struct Event<T> {
+    pub buffer: Arc<InterleavedBuffer<T>>,
 }
 
-pub struct Playlist {
-    clips: IntervalTree<MusicalTime, Clip>,
+pub struct Clip<T> {
+    pub buffer: Arc<InterleavedBuffer<T>>,
 }
 
-impl Playlist {
-    pub fn from_clips(clips: IntervalTree<MusicalTime, Clip>) -> Self {
+impl<T> Clone for Clip<T> {
+    fn clone(&self) -> Self {
+        Self {
+            buffer: self.buffer.clone(),
+        }
+    }
+}
+
+pub struct Playlist<T> {
+    clips: IntervalTree<MusicalTime, Clip<T>>,
+}
+
+impl<T> Playlist<T> {
+    pub fn from_clips(clips: IntervalTree<MusicalTime, Clip<T>>) -> Self {
         Self { clips }
     }
 
@@ -49,13 +43,13 @@ impl Playlist {
     }
 }
 
-impl Playlist {
+impl<T> Playlist<T> {
     /// Insert a `Clip` into the `Playlist`
     /// Returns the previously existing clip at this range, or `None` if there wasn't any
     ///
     /// # Panics
     /// Panics if `range.start >= range.end`
-    pub fn insert(&mut self, range: Range<MusicalTime>, clip: Clip) -> Option<Clip> {
+    pub fn insert(&mut self, range: Range<MusicalTime>, clip: Clip<T>) -> Option<Clip<T>> {
         assert!(
             range.start < range.end,
             "invalid range: start must be less than end"
@@ -63,20 +57,21 @@ impl Playlist {
         self.clips.insert(range, clip)
     }
 
-    pub fn remove(&mut self, range: Range<MusicalTime>) -> Option<Clip> {
+    pub fn remove(&mut self, range: Range<MusicalTime>) -> Option<Clip<T>> {
         self.clips.remove(&range)
     }
 
-    pub fn get(&self, range: Range<MusicalTime>) -> Option<Clip> {
-        self.clips.get(&range).copied()
+    pub fn get(&self, range: Range<MusicalTime>) -> Option<Clip<T>> {
+        self.clips.get(&range).cloned()
     }
 
+    // TODO: currently not needed; maybe remove?
     pub fn iter_blocks(
         &self,
         block_size: FrameTime,
         sample_rate: SampleRate,
         bpm: f64,
-    ) -> BlockIterator<'_> {
+    ) -> BlockIterator<'_, T> {
         let block_duration_musical = block_size.to_musical_lossy(bpm, sample_rate);
 
         BlockIterator {
@@ -87,19 +82,49 @@ impl Playlist {
             clips: &self.clips,
         }
     }
+
+    pub fn get_block_events(
+        &self,
+        block_range_musical: Range<MusicalTime>,
+        bpm: f64,
+        sample_rate: SampleRate,
+    ) -> Vec<BlockEvent<T>> {
+        let mut block_events = Vec::new();
+
+        for (clip_range, clip) in self.clips.iter_overlaps(&block_range_musical) {
+            let event = Event {
+                buffer: clip.buffer.clone(),
+            };
+
+            let offset_musical = clip_range
+                .start
+                .checked_sub(block_range_musical.start)
+                .unwrap_or(MusicalTime::ZERO);
+
+            let offset_frames = offset_musical.to_nearest_frame_round_lossy(bpm, sample_rate);
+
+            block_events.push(BlockEvent {
+                block_offset: offset_frames,
+                event,
+            });
+        }
+
+        block_events
+    }
 }
 
 /// An Iterator that generates BlockEvents from an IntervalTree
-pub struct BlockIterator<'a> {
+// TODO: currently not needed; maybe remove?
+pub struct BlockIterator<'a, T> {
     bpm: f64,
     sample_rate: SampleRate,
     current_musical_pos: MusicalTime,
     block_duration_musical: MusicalTime,
-    clips: &'a IntervalTree<MusicalTime, Clip>,
+    clips: &'a IntervalTree<MusicalTime, Clip<T>>,
 }
 
-impl Iterator for BlockIterator<'_> {
-    type Item = Vec<BlockEvent>;
+impl<T> Iterator for BlockIterator<'_, T> {
+    type Item = Vec<BlockEvent<T>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let block_start_musical = self.current_musical_pos;
@@ -109,28 +134,15 @@ impl Iterator for BlockIterator<'_> {
         let mut block_events = Vec::new();
 
         for (clip_range, clip) in self.clips.iter_overlaps(&block_range_musical) {
-            let intersection = match get_intersection(&block_range_musical, &clip_range) {
-                Some(i) => i,
-                None => continue,
-            };
-
-            let clip_local_start = intersection.start.checked_sub(clip_range.start).unwrap();
-            let clip_local_end = intersection.end.checked_sub(clip_range.start).unwrap();
-
-            let buffer_start_frame =
-                clip_local_start.to_nearest_frame_round_lossy(self.bpm, self.sample_rate);
-            let buffer_end_frame =
-                clip_local_end.to_nearest_frame_round_lossy(self.bpm, self.sample_rate);
-
-            let buffer_slice_start = clip.buffer_offset + buffer_start_frame;
-            let buffer_slice_end = clip.buffer_offset + buffer_end_frame;
-
             let event = Event {
-                buffer_slice_range: buffer_slice_start..buffer_slice_end,
-                buffer: clip.buffer_key,
+                buffer: clip.buffer.clone(),
             };
 
-            let offset_musical = intersection.start.checked_sub(block_start_musical).unwrap();
+            let offset_musical = clip_range
+                .start
+                .checked_sub(block_start_musical)
+                .unwrap_or(MusicalTime::ZERO);
+
             let offset_frames =
                 offset_musical.to_nearest_frame_round_lossy(self.bpm, self.sample_rate);
 

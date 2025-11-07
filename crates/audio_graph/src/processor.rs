@@ -97,7 +97,7 @@ where
         input: &InterleavedBuffer<T>,
         output: &mut InterleavedBuffer<T>,
     ) {
-        mix_buffers(input, output).expect("this is the unchecked method");
+        mix_buffers(input, output, None).expect("this is the unchecked method");
     }
 
     fn config(&self) -> ProcessorConfiguration {

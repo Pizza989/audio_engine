@@ -9,14 +9,20 @@ use time::{FrameTime, SampleRate};
 
 use crate::playlist::Playlist;
 
-pub struct Track<T: audio_buffer::dasp::Sample> {
+pub struct Track<T>
+where
+    T: audio_buffer::dasp::Sample,
+{
     graph: AudioGraph<T, Box<dyn AudioProcessor<T>>>,
-    playlist: Playlist,
+    playlist: Playlist<T>,
     // INVARIANT: `input` must never dangle
     input: NodeIndex,
 }
 
-impl<T: audio_buffer::dasp::Sample + 'static> Track<T> {
+impl<T> Track<T>
+where
+    T: audio_buffer::dasp::Sample + 'static,
+{
     /// Convinience constructor to create a stereo track from its configuration
     pub fn from_config(sample_rate: SampleRate, block_size: FrameTime) -> Self {
         let (graph, input) = AudioGraph::<T, Box<dyn AudioProcessor<T>>>::new(
@@ -40,12 +46,19 @@ impl<T: audio_buffer::dasp::Sample + 'static> Track<T> {
         }
     }
 
-    pub fn playlist(&self) -> &Playlist {
+    pub fn get_playlist(&self) -> &Playlist<T> {
         &self.playlist
+    }
+
+    pub fn get_playlist_mut(&mut self) -> &mut Playlist<T> {
+        &mut self.playlist
     }
 }
 
-impl<T: audio_buffer::dasp::Sample + 'static> AudioProcessor<T> for Track<T> {
+impl<T> AudioProcessor<T> for Track<T>
+where
+    T: audio_buffer::dasp::Sample + 'static,
+{
     fn process_unchecked(
         &mut self,
         input: &audio_buffer::buffers::interleaved::InterleavedBuffer<T>,
@@ -53,7 +66,7 @@ impl<T: audio_buffer::dasp::Sample + 'static> AudioProcessor<T> for Track<T> {
     ) {
         let mut inputs = HashMap::new();
         inputs.insert(self.input, input);
-        self.graph.process(inputs, output);
+        self.graph.process_block(&inputs, output);
     }
 
     fn config(&self) -> audio_graph::processor::ProcessorConfiguration {

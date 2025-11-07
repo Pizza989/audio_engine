@@ -159,6 +159,10 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedBuffer<T> {
             None
         }
     }
+
+    fn set_to_equilibrium(&mut self) {
+        self.data.fill(T::EQUILIBRIUM);
+    }
 }
 
 impl<T: dasp::Sample> ResizableBuffer for InterleavedBuffer<T> {

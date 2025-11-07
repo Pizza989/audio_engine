@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use time::SampleRate;
 
@@ -104,6 +104,8 @@ pub trait BufferMut: Buffer {
             };
         }
     }
+
+    fn set_to_equilibrium(&mut self);
 }
 
 pub trait ResizableBuffer: Buffer {
@@ -124,5 +126,60 @@ pub trait ResizableBuffer: Buffer {
         if self.frames() > max_frames {
             self.resize(max_frames);
         }
+    }
+}
+
+impl<T> Buffer for Arc<T>
+where
+    T: Buffer,
+{
+    type Sample = T::Sample;
+
+    type Frame<'this>
+        = T::Frame<'this>
+    where
+        Self: 'this;
+
+    type Channel<'this>
+        = T::Channel<'this>
+    where
+        Self: 'this;
+
+    type IterFrames<'this>
+        = T::IterFrames<'this>
+    where
+        Self: 'this;
+
+    type IterChannels<'this>
+        = T::IterChannels<'this>
+    where
+        Self: 'this;
+
+    fn get_frame(&self, index: usize) -> Option<Self::Frame<'_>> {
+        (**self).get_frame(index)
+    }
+
+    fn get_channel(&self, index: usize) -> Option<Self::Channel<'_>> {
+        (**self).get_channel(index)
+    }
+
+    fn iter_frames(&self) -> Self::IterFrames<'_> {
+        (**self).iter_frames()
+    }
+
+    fn iter_channels(&self) -> Self::IterChannels<'_> {
+        (**self).iter_channels()
+    }
+
+    fn channels(&self) -> usize {
+        (**self).channels()
+    }
+
+    fn samples(&self) -> usize {
+        (**self).samples()
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        (**self).sample_rate()
     }
 }

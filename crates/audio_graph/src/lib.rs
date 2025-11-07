@@ -37,6 +37,7 @@ where
     buffer_pool: BufferPool<T>,
     block_size: FrameTime,
     sample_rate: SampleRate,
+    // INVARIANT: must be valid
     output: NodeIndex,
 }
 
@@ -156,9 +157,9 @@ where
     T: dasp::Sample + 'static,
     N: processor::AudioProcessor<T>,
 {
-    pub fn process(
+    pub fn process_block(
         &mut self,
-        inputs: HashMap<NodeIndex, &InterleavedBuffer<T>>,
+        inputs: &HashMap<NodeIndex, &InterleavedBuffer<T>>,
         output: &mut InterleavedBuffer<T>,
     ) {
         let mut node_outputs: HashMap<NodeIndex, InterleavedBuffer<T>> = HashMap::new();
@@ -298,6 +299,14 @@ where
     // TODO: might be problematic with reconfiguration
     pub fn get_dag(&self) -> &Dag<N, Connection> {
         &self.dag
+    }
+
+    pub fn get_node(&self, index: NodeIndex) -> Option<&N> {
+        self.dag.node_weight(index)
+    }
+
+    pub fn get_node_mut(&mut self, index: NodeIndex) -> Option<&mut N> {
+        self.dag.node_weight_mut(index)
     }
 
     pub fn sample_rate(&self) -> SampleRate {
