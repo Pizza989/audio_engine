@@ -112,6 +112,11 @@ where
         master_buffer: &mut InterleavedBuffer<T>,
     ) {
         for track_index in self.graph.get_dag().graph().node_indices() {
+            // TODO: self.master is a bus but busses don't exist yet
+            if track_index == self.master {
+                continue;
+            }
+
             let track = self.graph.get_node(track_index).expect("is valid");
 
             let block_events = track.get_playlist().get_block_events(
@@ -136,6 +141,7 @@ where
             &track_buffers.iter().map(|(&k, v)| (k, v)).collect(),
             master_buffer,
         );
+        println!("b");
     }
 
     // PRECONDITIONS:

@@ -3,16 +3,16 @@ use std::{
     num::NonZero,
 };
 
-use audio_buffer::buffers::interleaved::InterleavedBuffer;
+use audio_buffer::{buffers::interleaved::InterleavedBuffer, core::Buffer};
 use time::{FrameTime, SampleRate};
 
-pub struct BufferPool<T> {
+pub struct BufferArena<T> {
     // (channels, buffer_size)
     free: HashMap<(usize, FrameTime), VecDeque<InterleavedBuffer<T>>>,
     sample_rate: SampleRate,
 }
 
-impl<T> BufferPool<T>
+impl<T> BufferArena<T>
 where
     T: audio_buffer::dasp::Sample,
 {
@@ -42,19 +42,6 @@ where
         }
     }
 
-    pub fn aquire(&mut self, channels: usize, buffer_size: FrameTime) -> InterleavedBuffer<T> {
-        match self.free.get_mut(&(channels, buffer_size)) {
-            Some(queue) => match queue.pop_front() {
-                Some(buffer) => buffer,
-                None => panic!("Buffer Pool couldn't provide a buffer"),
-            },
-            None => panic!(
-                "Buffer Pool didn't have a queue of buffers with {} channels",
-                channels
-            ),
-        }
-    }
-
     pub fn ensure_capacity(&mut self, channels: usize, buffer_size: FrameTime, amount: usize) {
         let required = match self.free.get(&(channels, buffer_size)) {
             Some(queue) => amount - queue.len(),
@@ -63,6 +50,33 @@ where
 
         for _ in 0..required {
             self.allocate_buffer(channels, buffer_size);
+        }
+    }
+
+    pub fn take(
+        &mut self,
+        channels: usize,
+        buffer_size: FrameTime,
+    ) -> Option<InterleavedBuffer<T>> {
+        match self.free.get_mut(&(channels, buffer_size)) {
+            Some(queue) => match queue.pop_front() {
+                Some(buffer) => Some(buffer),
+                None => None,
+            },
+            None => None,
+        }
+    }
+
+    pub fn release(&mut self, buffer: InterleavedBuffer<T>) {
+        let num_channels = buffer.channels();
+        let size = buffer.frames();
+        match self.free.get_mut(&(num_channels, size.into())) {
+            Some(queue) => queue.push_back(buffer),
+            None => {
+                let mut queue = VecDeque::new();
+                queue.push_front(buffer);
+                self.free.insert((num_channels, size.into()), queue);
+            }
         }
     }
 }

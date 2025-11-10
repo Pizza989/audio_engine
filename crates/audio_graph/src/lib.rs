@@ -10,7 +10,7 @@ use daggy::{Dag, EdgeIndex, NodeIndex, Walker, petgraph};
 use time::FrameTime;
 use time::SampleRate;
 
-use crate::buffer_pool::BufferPool;
+use crate::buffer_pool::BufferArena;
 use crate::error::GraphError;
 use crate::pin_matrix::PinMatrix;
 use crate::processor::AudioProcessor;
@@ -27,6 +27,13 @@ pub struct Connection {
     matrix: PinMatrix,
 }
 
+// INVARIANT: "PinMatrix Validity"
+// The matrix stored on graph edges must always have
+// as many input channels as the source has output
+// channels and as many output channels as the
+// destination has input channels.
+// INVARIANT: "Output Validity"
+// `self.output` must always be a valid index
 pub struct AudioGraph<T, N>
 where
     T: dasp::Sample,
@@ -34,10 +41,15 @@ where
 {
     dag: Dag<N, Connection>,
     execution_order: Vec<NodeIndex>,
-    buffer_pool: BufferPool<T>,
+    buffer_arena: BufferArena<T>,
+
+    // stores cached buffer -> last consumer
+    // this means that during processing a cached buffer
+    // can be released once the last consumer has been
+    // processed
+    buffer_lifetimes: HashMap<NodeIndex, NodeIndex>,
     block_size: FrameTime,
     sample_rate: SampleRate,
-    // INVARIANT: must be valid
     output: NodeIndex,
 }
 
@@ -50,10 +62,11 @@ where
         let mut graph = Self {
             dag: Dag::new(),
             execution_order: vec![],
-            buffer_pool: BufferPool::new(sample_rate),
+            buffer_arena: BufferArena::new(sample_rate),
             sample_rate: sample_rate,
             block_size,
             output: 0.into(),
+            buffer_lifetimes: HashMap::new(),
         };
 
         let node_idx = graph.add_node(node);
@@ -157,6 +170,11 @@ where
     T: dasp::Sample + 'static,
     N: processor::AudioProcessor<T>,
 {
+    // PRECONDITIONS:
+    // a) self.execution_order is an up to date topological ordering of the graph
+    // b) self.buffer_pool can provide enough buffers with the right configuration
+    // POSTCONDITIONS:
+    // a) self.buffer_pool can provide enough buffers again for next block
     pub fn process_block(
         &mut self,
         inputs: &HashMap<NodeIndex, &InterleavedBuffer<T>>,
@@ -165,82 +183,122 @@ where
         let mut node_outputs: HashMap<NodeIndex, InterleavedBuffer<T>> = HashMap::new();
 
         for &node_idx in &self.execution_order {
-            let node = self
+            let node_config = self
                 .dag
                 .node_weight(node_idx)
-                .expect("must be valid due to invariants");
+                .expect("precondition a")
+                .config();
 
-            let node_config = node.config();
-
-            // node_input has as many channels as node_idx has input channels
-            let node_input = match inputs.get(&node_idx) {
-                Some(input) => RefOrOwned::Ref(*input),
-                None => {
-                    // mixed must have as many channels as node_idx has input channels
-                    let mut mixed = self
-                        .buffer_pool
-                        .aquire(node_config.num_input_channels, self.block_size);
-
-                    for (edge, parent) in self.dag.parents(node_idx).iter(&self.dag) {
-                        let parent_out = node_outputs
-                            .get(&parent)
-                            .expect("must be cached due to execution order");
-
-                        let connection = self.dag.edge_weight(edge).expect("exists");
-
-                        for (parent_channel_idx, mixed_channel_idx) in
-                            connection.matrix.channel_connections()
-                        {
-                            let parent_channel = parent_out
-                                .get_channel(parent_channel_idx)
-                                .expect("must be valid due to invariants");
-
-                            mixed.map_channels_mut(
-                                |mut mixed_channel, _| {
-                                    mixed_channel.map_samples_mut(|out_sample, sample_index| {
-                                        match parent_channel.get(sample_index) {
-                                            Some(in_sample) => {
-                                                *out_sample = out_sample.add_amp(
-                                                    dasp::Sample::to_signed_sample(*in_sample),
-                                                );
-                                                Some(())
-                                            }
-                                            None => {
-                                                unreachable!(
-                                                    "buffers should always have the same size"
-                                                )
-                                            }
-                                        }
-                                    });
-                                    None::<usize>
-                                },
-                                Some(mixed_channel_idx),
-                            );
-                        }
-                    }
-                    RefOrOwned::Owned(mixed)
-                }
-            };
-
-            // node_output has as many channels as node_idx has output channels
-            if node_idx == self.output {
+            if let Some(external_input) = inputs.get(&node_idx) {
                 self.dag
                     .node_weight_mut(node_idx)
-                    .expect("must be valid due to invariants")
-                    .process_unchecked(node_input.as_ref(), output);
-
-                return;
+                    .expect("precondition a")
+                    .process_unchecked(
+                        &external_input,
+                        if node_idx == self.output {
+                            output
+                        } else {
+                            let node_output = self
+                                .buffer_arena
+                                .take(node_config.num_output_channels, self.block_size)
+                                .expect("precondition b");
+                            node_outputs.insert(node_idx, node_output);
+                            node_outputs.get_mut(&node_idx).unwrap()
+                        },
+                    );
             } else {
-                let mut node_output = self
-                    .buffer_pool
-                    .aquire(node_config.num_output_channels, self.block_size);
+                let mut mixed = self
+                    .buffer_arena
+                    .take(node_config.num_input_channels, self.block_size)
+                    .expect("precondition b");
+
+                self.mix_parents_from_cache(node_idx, &mut node_outputs, &mut mixed);
+
                 self.dag
                     .node_weight_mut(node_idx)
-                    .expect("must be valid due to invariants")
-                    .process_unchecked(node_input.as_ref(), &mut node_output);
+                    .expect("precondition a")
+                    .process_unchecked(
+                        &mixed,
+                        if node_idx == self.output {
+                            output
+                        } else {
+                            let node_output = self
+                                .buffer_arena
+                                .take(node_config.num_output_channels, self.block_size)
+                                .expect("precondition b");
+                            node_outputs.insert(node_idx, node_output);
+                            node_outputs.get_mut(&node_idx).unwrap()
+                        },
+                    );
 
-                node_outputs.insert(node_idx, node_output);
+                mixed.set_to_equilibrium();
+                self.buffer_arena.release(mixed);
             };
+
+            if node_idx == self.output {
+                break;
+            }
+
+            for (&cached, &last_consumer) in &self.buffer_lifetimes {
+                if last_consumer == node_idx {
+                    if let Some(mut buffer) = node_outputs.remove(&cached) {
+                        buffer.set_to_equilibrium();
+                        self.buffer_arena.release(buffer);
+                    }
+                }
+            }
+        }
+
+        for (_index, mut buffer) in node_outputs.drain() {
+            buffer.set_to_equilibrium();
+            self.buffer_arena.release(buffer);
+        }
+    }
+
+    // PRECONDITIONS:
+    // a) parent_outputs_cache must contain a buffer for every parent
+    // b) the size of the output buffer and all buffers in parent_outputs_cache
+    //    must be the same
+    fn mix_parents_from_cache(
+        &self,
+        index: NodeIndex,
+        parent_outputs_cache: &mut HashMap<NodeIndex, InterleavedBuffer<T>>,
+        output: &mut InterleavedBuffer<T>,
+    ) {
+        for (edge, parent) in self.dag.parents(index).iter(&self.dag) {
+            let parent_out = parent_outputs_cache
+                .get(&parent)
+                .expect("must be cached due to precondition a");
+
+            let connection = self
+                .dag
+                .edge_weight(edge)
+                .expect("was just returned by self.dag.parents call");
+
+            for (parent_channel_idx, mixed_channel_idx) in connection.matrix.channel_connections() {
+                let parent_channel = parent_out
+                    .get_channel(parent_channel_idx)
+                    .expect("must be valid due to PinMatrix Validity");
+
+                output.map_channels_mut(
+                    |mut mixed_channel, _| {
+                        mixed_channel.map_samples_mut(|out_sample, sample_index| {
+                            match parent_channel.get(sample_index) {
+                                Some(in_sample) => {
+                                    *out_sample = out_sample
+                                        .add_amp(dasp::Sample::to_signed_sample(*in_sample));
+                                    Some(())
+                                }
+                                None => {
+                                    unreachable!("precondition b")
+                                }
+                            }
+                        });
+                        None::<usize>
+                    },
+                    Some(mixed_channel_idx),
+                );
+            }
         }
     }
 
@@ -264,7 +322,7 @@ where
         }
 
         for (channels, amount) in buffers_required {
-            self.buffer_pool
+            self.buffer_arena
                 .ensure_capacity(channels, self.block_size, amount);
         }
     }
@@ -273,8 +331,20 @@ where
         self.execution_order = petgraph::algo::toposort(&self.dag, None)
             .expect("graph must be acyclic")
             .into_iter()
-            .rev()
             .collect();
+
+        self.compute_buffer_lifetimes();
+    }
+
+    fn compute_buffer_lifetimes(&mut self) {
+        self.buffer_lifetimes.clear();
+
+        for &node_idx in &self.execution_order {
+            for (_, parent) in self.dag.parents(node_idx).iter(&self.dag) {
+                // Update the last user of this parent's buffer
+                self.buffer_lifetimes.insert(parent, node_idx);
+            }
+        }
     }
 
     pub fn add_node(&mut self, weight: N) -> NodeIndex {
@@ -311,19 +381,5 @@ where
 
     pub fn sample_rate(&self) -> SampleRate {
         self.sample_rate
-    }
-}
-
-enum RefOrOwned<'a, T> {
-    Ref(&'a T),
-    Owned(T),
-}
-
-impl<'a, T> AsRef<T> for RefOrOwned<'a, T> {
-    fn as_ref(&self) -> &T {
-        match self {
-            RefOrOwned::Ref(r) => r,
-            RefOrOwned::Owned(o) => &o,
-        }
     }
 }
