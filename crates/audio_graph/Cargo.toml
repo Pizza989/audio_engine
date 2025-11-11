@@ -7,4 +7,4 @@ edition = "2024"
 daggy = "0.9.0"
 audio_buffer = { path = "../audio_buffer" }
 time = { path = "../time" }
-thiserror = "2.0.16"
+thiserror = "2.0.17"

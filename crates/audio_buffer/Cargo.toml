@@ -3,9 +3,12 @@ name = "audio_buffer"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["loader"]
+loader = ["dep:symphonia"]
+
 [dependencies]
 dasp = { version = "0.11.0" }
-lending-iterator = "0.1.7"
-symphonia = "0.5.4"
+symphonia = { version = "0.5.4", optional = true}
 thiserror = "2.0.17"
 time = { path = "../time" }
