@@ -40,7 +40,7 @@ pub fn mix_buffers<T: Sample, I: Buffer<Sample = T>, O: BufferMut<Sample = T>>(
                             )
                         }
                     }
-                }));
+                }, None));
 
                     written += 1;
                     result

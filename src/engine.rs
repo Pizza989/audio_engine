@@ -40,7 +40,7 @@ where
             block_size,
             sample_rate,
             bpm,
-            master_buffer: Some(InterleavedBuffer::with_capacity(
+            master_buffer: Some(InterleavedBuffer::with_shape(
                 NonZero::new(2).unwrap(),
                 sample_rate,
                 block_size,
@@ -58,7 +58,7 @@ where
 
         self.track_buffers.insert(
             index,
-            Some(InterleavedBuffer::with_capacity(
+            Some(InterleavedBuffer::with_shape(
                 NonZero::new(2).unwrap(),
                 self.sample_rate,
                 self.block_size,

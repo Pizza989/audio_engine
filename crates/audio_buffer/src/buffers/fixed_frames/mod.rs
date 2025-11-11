@@ -37,7 +37,7 @@ pub struct FixedFrameBuffer<T, const F: usize> {
 }
 
 impl<T: dasp::Sample, const F: usize> FixedFrameBuffer<T, F> {
-    pub fn with_capacity(channels: usize, sample_rate: SampleRate) -> Self {
+    pub fn with_shape(channels: usize, sample_rate: SampleRate) -> Self {
         Self {
             data: vec![[T::EQUILIBRIUM; F]; channels],
             sample_rate,

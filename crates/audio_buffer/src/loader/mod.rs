@@ -28,7 +28,7 @@ pub fn load<T: ConvertibleSample + dasp::Sample + 'static>(
     let track_id = track.id;
     let mut sample_buffer = None;
 
-    let mut final_buffer = InterleavedBuffer::<T>::with_capacity(
+    let mut final_buffer = InterleavedBuffer::<T>::with_shape(
         source.num_channels,
         source.sample_rate.into(),
         track.codec_params.n_frames.unwrap_or(0).into(),

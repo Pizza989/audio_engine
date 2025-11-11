@@ -282,8 +282,8 @@ where
 
                 output.map_channels_mut(
                     |mut mixed_channel, _| {
-                        mixed_channel.map_samples_mut(|out_sample, sample_index| {
-                            match parent_channel.get(sample_index) {
+                        mixed_channel.map_samples_mut(
+                            |out_sample, sample_index| match parent_channel.get(sample_index) {
                                 Some(in_sample) => {
                                     *out_sample = out_sample
                                         .add_amp(dasp::Sample::to_signed_sample(*in_sample));
@@ -292,8 +292,9 @@ where
                                 None => {
                                     unreachable!("precondition b")
                                 }
-                            }
-                        });
+                            },
+                            None,
+                        );
                         None::<usize>
                     },
                     Some(mixed_channel_idx),

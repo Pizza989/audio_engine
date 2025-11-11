@@ -1,4 +1,4 @@
-use std::num::{NonZero, NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use time::{FrameTime, SampleRate};
 
@@ -47,22 +47,12 @@ impl<T: dasp::Sample> InterleavedBuffer<T> {
         }
     }
 
-    pub fn with_capacity(
-        channels: NonZeroUsize,
-        sample_rate: SampleRate,
-        frames: FrameTime,
-    ) -> Self {
+    pub fn with_shape(channels: NonZeroUsize, sample_rate: SampleRate, frames: FrameTime) -> Self {
         Self {
             data: vec![T::EQUILIBRIUM; (frames * channels.get() as u64).0 as usize],
             channels,
             sample_rate,
         }
-    }
-}
-
-impl<T: dasp::Sample> Default for InterleavedBuffer<T> {
-    fn default() -> Self {
-        Self::new(NonZero::new(2).unwrap(), SampleRate::default())
     }
 }
 
@@ -181,17 +171,146 @@ impl<T: dasp::Sample> ResizableBuffer for InterleavedBuffer<T> {
 mod tests {
     use std::num::NonZero;
 
+    use dasp::Sample;
     use time::SampleRate;
 
-    use crate::{buffers::interleaved::InterleavedBuffer, core::Buffer};
+    use crate::{
+        buffers::interleaved::InterleavedBuffer,
+        core::{Buffer, BufferMut, ResizableBuffer, axis::BufferAxisMut},
+    };
 
     #[test]
-    fn interleaved_with_capacity() {
-        let buffer = InterleavedBuffer::<f32>::with_capacity(
+    fn with_shape_is_full() {
+        let buffer = InterleavedBuffer::<f32>::with_shape(
             NonZero::new(2).unwrap(),
             SampleRate::default(),
             time::FrameTime(256),
         );
+        assert_eq!(buffer.samples(), 512);
+        assert_eq!(buffer.channels(), 2);
         assert_eq!(buffer.frames(), 256);
+    }
+
+    #[test]
+    fn new_buffer_is_empty() {
+        let buffer = InterleavedBuffer::<f32>::new(NonZero::new(2).unwrap(), SampleRate::default());
+        assert_eq!(buffer.samples(), 0);
+        assert_eq!(buffer.frames(), 0);
+        assert_eq!(buffer.channels(), 2);
+    }
+
+    #[test]
+    fn get_frame_returns_correct_slice() {
+        let buffer = InterleavedBuffer::<f32>::with_shape(
+            NonZero::new(2).unwrap(),
+            SampleRate::default(),
+            time::FrameTime(3),
+        );
+
+        let frame0 = buffer.get_frame(0).unwrap();
+        assert_eq!(frame0.len(), 2);
+
+        let frame_out_of_bounds = buffer.get_frame(10);
+        assert!(frame_out_of_bounds.is_none());
+    }
+
+    #[test]
+    fn get_channel_returns_correct_view() {
+        let buffer = InterleavedBuffer::<f32>::with_shape(
+            NonZero::new(2).unwrap(),
+            SampleRate::default(),
+            time::FrameTime(2),
+        );
+
+        let channel0 = buffer.get_channel(0).unwrap();
+        let channel1 = buffer.get_channel(1).unwrap();
+        assert!(channel0.get(0).is_some());
+        assert!(channel1.get(0).is_some());
+
+        assert!(channel0.get(10).is_none());
+        assert!(channel1.get(10).is_none());
+
+        assert!(buffer.get_channel(2).is_none());
+    }
+
+    #[test]
+    fn with_frame_mut_changes_values() {
+        let mut buffer = InterleavedBuffer::<f32>::with_shape(
+            NonZero::new(2).unwrap(),
+            SampleRate::default(),
+            time::FrameTime(1),
+        );
+
+        buffer.with_frame_mut(0, |frame| {
+            frame[0] = 1.0;
+            frame[1] = 2.0;
+        });
+
+        let frame = buffer.get_frame(0).unwrap();
+        assert_eq!(frame, &[1.0, 2.0]);
+    }
+
+    #[test]
+    fn with_channel_mut_changes_values() {
+        let mut buffer = InterleavedBuffer::<f32>::with_shape(
+            NonZero::new(2).unwrap(),
+            SampleRate::default(),
+            time::FrameTime(2),
+        );
+
+        buffer.with_channel_mut(0, |mut channel| {
+            channel.map_samples_mut(
+                |sample, _| {
+                    *sample = 42.0;
+                    Some(())
+                },
+                None,
+            );
+        });
+
+        let channel0 = buffer.get_channel(0).unwrap();
+
+        assert_eq!(
+            &[*channel0.get(0).unwrap(), *channel0.get(1).unwrap()],
+            &[42.0, 42.0]
+        );
+    }
+
+    #[test]
+    fn iter_frames_returns_correct_chunks() {
+        let buffer = InterleavedBuffer::<f32>::with_shape(
+            NonZero::new(2).unwrap(),
+            SampleRate::default(),
+            time::FrameTime(3),
+        );
+
+        let frames: Vec<_> = buffer.iter_frames().collect();
+        assert_eq!(frames.len(), 3);
+        assert!(frames.iter().all(|f| f.len() == 2));
+    }
+
+    #[test]
+    fn resize_changes_frames() {
+        let mut buffer = InterleavedBuffer::<f32>::with_shape(
+            NonZero::new(2).unwrap(),
+            SampleRate::default(),
+            time::FrameTime(2),
+        );
+
+        buffer.resize(4);
+        assert_eq!(buffer.frames(), 4);
+        assert_eq!(buffer.samples(), 8);
+    }
+
+    #[test]
+    fn set_to_equilibrium_fills_buffer() {
+        let mut buffer = InterleavedBuffer::<f32>::with_shape(
+            NonZero::new(2).unwrap(),
+            SampleRate::default(),
+            time::FrameTime(3),
+        );
+
+        buffer.set_to_equilibrium();
+        assert!(buffer.data.iter().all(|&s| s == f32::EQUILIBRIUM));
     }
 }

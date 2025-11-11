@@ -51,7 +51,7 @@ impl<'a, T: dasp::Sample + 'static, B: BufferMut<Sample = T>> Writer<'a, T, B> {
                                     unreachable!("channel mismatch between input and output buffers must not occur")
                                 }
                         }
-                    }));
+                    }, None));
 
                         written += 1;
                         result
@@ -95,7 +95,7 @@ impl<'a, T: dasp::Sample + 'static, B: BufferMut<Sample = T>> Writer<'a, T, B> {
                             )
                         }
                     }
-                }));
+                }, None));
 
                         written += 1;
                         result

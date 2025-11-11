@@ -25,14 +25,14 @@ where
 
     pub fn allocate_buffer(&mut self, channels: usize, buffer_size: FrameTime) {
         match self.free.get_mut(&(channels, buffer_size)) {
-            Some(queue) => queue.push_front(InterleavedBuffer::with_capacity(
+            Some(queue) => queue.push_front(InterleavedBuffer::with_shape(
                 NonZero::new(channels).unwrap(),
                 self.sample_rate,
                 buffer_size,
             )),
             None => {
                 let mut queue = VecDeque::new();
-                queue.push_front(InterleavedBuffer::with_capacity(
+                queue.push_front(InterleavedBuffer::with_shape(
                     NonZero::new(channels).unwrap(),
                     self.sample_rate,
                     buffer_size,

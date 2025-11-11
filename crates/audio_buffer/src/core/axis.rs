@@ -38,11 +38,11 @@ where
 
 pub trait BufferAxisMut<'a, T>: BufferAxis<T> {
     fn get_sample_mut(&mut self, index: usize) -> Option<&mut T>;
-    fn map_samples_mut<F, R>(&mut self, mut f: F)
+    fn map_samples_mut<F, R>(&mut self, mut f: F, offset: Option<usize>)
     where
         F: for<'sample> FnMut(&'sample mut T, usize) -> Option<R>,
     {
-        let mut index = 0;
+        let mut index = offset.unwrap_or(0);
         while let Some(sample) = self.get_sample_mut(index) {
             match f(sample, index) {
                 Some(_) => {
