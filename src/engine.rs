@@ -141,7 +141,6 @@ where
             &track_buffers.iter().map(|(&k, v)| (k, v)).collect(),
             master_buffer,
         );
-        println!("b");
     }
 
     // PRECONDITIONS:

@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::{NonZero, NonZeroUsize};
 
 use time::{FrameTime, SampleRate};
 
@@ -38,7 +38,7 @@ pub struct InterleavedBuffer<T> {
     sample_rate: SampleRate,
 }
 
-impl<T> InterleavedBuffer<T> {
+impl<T: dasp::Sample> InterleavedBuffer<T> {
     pub fn new(channels: NonZeroUsize, sample_rate: SampleRate) -> Self {
         Self {
             data: Vec::<T>::new(),
@@ -53,10 +53,16 @@ impl<T> InterleavedBuffer<T> {
         frames: FrameTime,
     ) -> Self {
         Self {
-            data: Vec::<T>::with_capacity((frames * channels.get() as u64).0 as usize),
+            data: vec![T::EQUILIBRIUM; (frames * channels.get() as u64).0 as usize],
             channels,
             sample_rate,
         }
+    }
+}
+
+impl<T: dasp::Sample> Default for InterleavedBuffer<T> {
+    fn default() -> Self {
+        Self::new(NonZero::new(2).unwrap(), SampleRate::default())
     }
 }
 
@@ -168,5 +174,24 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedBuffer<T> {
 impl<T: dasp::Sample> ResizableBuffer for InterleavedBuffer<T> {
     fn resize(&mut self, frames: usize) {
         self.data.resize(frames * self.channels(), T::EQUILIBRIUM);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZero;
+
+    use time::SampleRate;
+
+    use crate::{buffers::interleaved::InterleavedBuffer, core::Buffer};
+
+    #[test]
+    fn interleaved_with_capacity() {
+        let buffer = InterleavedBuffer::<f32>::with_capacity(
+            NonZero::new(2).unwrap(),
+            SampleRate::default(),
+            time::FrameTime(256),
+        );
+        assert_eq!(buffer.frames(), 256);
     }
 }
