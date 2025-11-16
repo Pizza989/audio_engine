@@ -65,11 +65,11 @@ where
         Self { processor }
     }
 
-    pub fn get_processor(&self) -> &Box<(dyn AudioProcessor<T> + 'static)> {
+    pub fn get_processor(&self) -> &Box<dyn AudioProcessor<T> + 'static> {
         &self.processor
     }
 
-    pub fn get_processor_mut(&mut self) -> &mut Box<(dyn AudioProcessor<T> + 'static)> {
+    pub fn get_processor_mut(&mut self) -> &mut Box<dyn AudioProcessor<T> + 'static> {
         &mut self.processor
     }
 }
