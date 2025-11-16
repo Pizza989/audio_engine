@@ -57,7 +57,7 @@ where
 
 impl<T> AudioProcessor<T> for Track<T>
 where
-    T: audio_buffer::dasp::Sample + 'static,
+    T: audio_buffer::SharedSample,
 {
     fn process_unchecked(
         &mut self,

@@ -38,6 +38,16 @@ pub struct InterleavedBuffer<T> {
     sample_rate: SampleRate,
 }
 
+impl<T> InterleavedBuffer<T> {
+    pub fn get_sample(&self, channel: usize, frame: usize) -> Option<&T> {
+        if channel < self.channels.get() {
+            self.data.get(frame * self.channels.get() + channel)
+        } else {
+            None
+        }
+    }
+}
+
 impl<T: dasp::Sample> InterleavedBuffer<T> {
     pub fn new(channels: NonZeroUsize, sample_rate: SampleRate) -> Self {
         Self {

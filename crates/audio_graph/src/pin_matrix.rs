@@ -1,3 +1,5 @@
+// TODO: implement helpful debug
+#[derive(Debug, Clone)]
 pub struct PinMatrix {
     rows: usize,
     cols: usize,
