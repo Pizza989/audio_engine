@@ -6,7 +6,7 @@ use audio_buffer::{
 
 use crate::error::ProcessingError;
 
-pub trait AudioProcessor<T: dasp::Sample> {
+pub trait AudioProcessor<T: dasp::Sample>: Send {
     fn process(
         &mut self,
         input: &InterleavedBuffer<T>,

@@ -8,6 +8,8 @@ interavl = "0.3.0"
 time = { path = "crates/time" }
 audio_buffer = { path = "crates/audio_buffer" }
 audio_graph = { path = "crates/audio_graph" }
+cpal = "0.16.0"
+ringbuf = "0.4.8"
 
 [workspace]
 members = ["crates/time", "crates/audio_buffer", "crates/audio_graph"]
