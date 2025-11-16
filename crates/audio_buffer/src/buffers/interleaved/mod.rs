@@ -80,7 +80,8 @@ impl<T: dasp::Sample> Buffer for InterleavedBuffer<T> {
         Self: 'this;
 
     fn get_frame(&self, index: usize) -> Option<Self::Frame<'_>> {
-        self.data.get(index..index + self.channels())
+        self.data
+            .get(index * self.channels()..index * self.channels() + self.channels())
     }
 
     fn get_channel(&self, index: usize) -> Option<Self::Channel<'_>> {
@@ -132,7 +133,10 @@ impl<T: dasp::Sample + 'static> BufferMut for InterleavedBuffer<T> {
         F: FnOnce(Self::FrameMut<'this>) -> R,
     {
         let channels = self.channels();
-        match self.data.get_mut(index..index + channels) {
+        match self
+            .data
+            .get_mut(index * channels..index * channels + channels)
+        {
             Some(frame) => Some(f(frame)),
             None => None,
         }
@@ -201,11 +205,17 @@ mod tests {
 
     #[test]
     fn get_frame_returns_correct_slice() {
-        let buffer = InterleavedBuffer::<f32>::with_shape(
+        let mut buffer = InterleavedBuffer::<f32>::with_shape(
             NonZero::new(2).unwrap(),
             SampleRate::default(),
             time::FrameTime(3),
         );
+
+        buffer.data[4] = 5.0;
+        buffer.data[5] = 6.7;
+
+        let frame3 = buffer.get_frame(2).unwrap();
+        assert_eq!(frame3, &[5.0, 6.7]);
 
         let frame0 = buffer.get_frame(0).unwrap();
         assert_eq!(frame0.len(), 2);
@@ -238,15 +248,15 @@ mod tests {
         let mut buffer = InterleavedBuffer::<f32>::with_shape(
             NonZero::new(2).unwrap(),
             SampleRate::default(),
-            time::FrameTime(1),
+            time::FrameTime(3),
         );
 
-        buffer.with_frame_mut(0, |frame| {
+        buffer.with_frame_mut(2, |frame| {
             frame[0] = 1.0;
             frame[1] = 2.0;
         });
 
-        let frame = buffer.get_frame(0).unwrap();
+        let frame = buffer.get_frame(2).unwrap();
         assert_eq!(frame, &[1.0, 2.0]);
     }
 
