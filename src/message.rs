@@ -26,8 +26,17 @@ pub enum AudioEngineStatus {
 #[derive(Debug, Clone)]
 pub struct AudioBackendMessage {
     pub id: MessageId,
-    pub command: AudioBackendCommand,
+    pub intent: Intent,
 }
+
+#[derive(Debug, Clone)]
+pub enum Intent {
+    Query(AudioBackendQuery),
+    Command(AudioBackendCommand),
+}
+
+#[derive(Debug, Clone)]
+pub enum AudioBackendQuery {}
 
 #[derive(Debug, Clone)]
 pub enum AudioBackendCommand {

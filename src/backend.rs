@@ -15,7 +15,7 @@ use ringbuf::{HeapCons, traits::Consumer};
 use time::{FrameTime, MusicalTime, SampleRate};
 
 use crate::{
-    message::{AudioBackendCommand, AudioBackendMessage},
+    message::{AudioBackendCommand, AudioBackendMessage, Intent},
     track::Track,
 };
 
@@ -93,23 +93,26 @@ impl<T: SharedSample> AudioBackend<T> {
         }
     }
 
-    pub fn process_commands(&mut self) {
+    pub fn process_messages(&mut self) {
         while let Some(message) = self.command_consumer.try_pop() {
-            match message.command {
-                AudioBackendCommand::Start => self.running = true,
-                AudioBackendCommand::Pause => self.running = false,
-                AudioBackendCommand::SetPlayhead(musical_time) => {
-                    self.block_range = musical_time..musical_time + self.block_duration_musical
-                }
-                AudioBackendCommand::AddTrack => self.add_track(),
-                AudioBackendCommand::AddConnection {
-                    source,
-                    destination,
-                    matrix,
-                } => self.add_connection(source, destination, matrix),
-                AudioBackendCommand::UpdateConnection { edge, matrix } => {
-                    self.update_connection(edge, matrix)
-                }
+            match message.intent {
+                Intent::Query(query) => (),
+                Intent::Command(command) => match command {
+                    AudioBackendCommand::Start => self.running = true,
+                    AudioBackendCommand::Pause => self.running = false,
+                    AudioBackendCommand::SetPlayhead(musical_time) => {
+                        self.block_range = musical_time..musical_time + self.block_duration_musical
+                    }
+                    AudioBackendCommand::AddTrack => self.add_track(),
+                    AudioBackendCommand::AddConnection {
+                        source,
+                        destination,
+                        matrix,
+                    } => self.add_connection(source, destination, matrix),
+                    AudioBackendCommand::UpdateConnection { edge, matrix } => {
+                        self.update_connection(edge, matrix)
+                    }
+                },
             }
         }
     }

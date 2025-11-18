@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::{path::Path, sync::Arc};
 
@@ -6,12 +7,15 @@ use audio_buffer::symphonia::core::conv::ConvertibleSample;
 use audio_buffer::{buffers::interleaved::InterleavedBuffer, loader::error::LoadError};
 use audio_graph::AudioGraph;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::traits::{Producer, Split};
+use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 use time::{FrameTime, SampleRate};
 
 use crate::backend::AudioBackend;
-use crate::message::{AudioBackendCommand, AudioBackendMessage, AudioEngineMessage, MessageId};
+use crate::message::{
+    AudioBackendCommand, AudioBackendMessage, AudioBackendQuery, AudioEngineMessage, Intent,
+    MessageId,
+};
 use crate::track::Track;
 
 #[derive(Debug)]
@@ -29,7 +33,8 @@ where
 
     next_message_id: u64,
     command_producer: HeapProd<AudioBackendMessage>,
-    _status_consumer: HeapCons<AudioEngineMessage>,
+    status_consumer: HeapCons<AudioEngineMessage>,
+    status_message_cache: VecDeque<AudioEngineMessage>,
     _stream: Option<cpal::Stream>,
     _marker: PhantomData<T>,
 }
@@ -56,8 +61,9 @@ where
             _stream: Some(stream),
             _marker: PhantomData,
             command_producer: cmd_prod,
-            _status_consumer: status_cons,
+            status_consumer: status_cons,
             next_message_id: 0,
+            status_message_cache: VecDeque::new(),
         }
     }
 
@@ -72,7 +78,7 @@ where
             .build_output_stream(
                 &config.config(),
                 move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                    backend.process_commands();
+                    backend.process_messages();
                     backend.process_block(data);
                 },
                 |err| eprintln!("Stream error: {}", err),
@@ -90,18 +96,35 @@ where
         MessageId(id)
     }
 
-    fn new_message(&mut self, command: AudioBackendCommand) -> AudioBackendMessage {
+    fn new_message(&mut self, intent: Intent) -> AudioBackendMessage {
         AudioBackendMessage {
             id: self.next_message_id(),
-            command,
+            intent,
         }
+    }
+
+    pub fn dispatch_query(&mut self, query: AudioBackendQuery) -> Result<(), AudioEngineError> {
+        let message = self.new_message(Intent::Query(query));
+        let message_id = message.id;
+        self.status_message_cache
+            .extend(self.status_consumer.pop_iter());
+
+        self.command_producer
+            .try_push(message)
+            .map_err(|_| AudioEngineError::QueueFull)?;
+
+        while let Some(status) = self.status_consumer.try_pop() {
+            if status.id == message_id {}
+        }
+
+        Ok(())
     }
 
     pub fn dispatch_command(
         &mut self,
         command: AudioBackendCommand,
     ) -> Result<(), AudioEngineError> {
-        let message = self.new_message(command);
+        let message = self.new_message(Intent::Command(command));
 
         self.command_producer
             .try_push(message)
