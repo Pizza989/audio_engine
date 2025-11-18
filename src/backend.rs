@@ -50,11 +50,7 @@ impl<T: SharedSample> AudioBackend<T> {
             status_producer,
             graph,
             master,
-            master_buffer: InterleavedBuffer::with_shape(
-                NonZero::new(2).unwrap(),
-                sample_rate,
-                block_size,
-            ),
+            master_buffer: InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), block_size),
             track_buffers: HashMap::new(),
             block_size,
             block_duration_musical: block_size.to_musical_lossy(bpm, sample_rate),
@@ -84,11 +80,7 @@ impl<T: SharedSample> AudioBackend<T> {
 
                     self.track_buffers.insert(
                         index,
-                        InterleavedBuffer::with_shape(
-                            NonZero::new(2).unwrap(),
-                            self.sample_rate,
-                            self.block_size,
-                        ),
+                        InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), self.block_size),
                     );
                 }
                 AudioBackendCommand::AddConnection {

@@ -18,11 +18,11 @@ pub struct AudioEngine<T>
 where
     T: audio_buffer::dasp::Sample + 'static,
 {
-    block_size: FrameTime,
-    sample_rate: SampleRate,
-    bpm: f64,
+    _block_size: FrameTime,
+    _sample_rate: SampleRate,
+    _bpm: f64,
 
-    stream: Option<cpal::Stream>,
+    _stream: Option<cpal::Stream>,
     _marker: PhantomData<T>,
 }
 
@@ -50,10 +50,10 @@ where
         let stream = Self::start_stream(backend);
 
         Self {
-            block_size,
-            sample_rate,
-            bpm,
-            stream: Some(stream),
+            _block_size: block_size,
+            _sample_rate: sample_rate,
+            _bpm: bpm,
+            _stream: Some(stream),
             _marker: PhantomData,
         }
     }

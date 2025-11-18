@@ -62,7 +62,7 @@ where
         let mut graph = Self {
             dag: Dag::new(),
             execution_order: vec![],
-            buffer_arena: BufferArena::new(sample_rate),
+            buffer_arena: BufferArena::new(),
             sample_rate: sample_rate,
             block_size,
             output: 0.into(),

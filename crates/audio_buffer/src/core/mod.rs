@@ -30,15 +30,12 @@ pub trait Buffer {
     fn iter_frames(&self) -> Self::IterFrames<'_>;
     fn iter_channels(&self) -> Self::IterChannels<'_>;
 
+    fn samples(&self) -> usize;
+    fn channels(&self) -> usize;
+
     fn frames(&self) -> usize {
         self.samples() / self.channels()
     }
-    fn duration(&self) -> Duration {
-        Duration::from_secs_f64(self.frames() as f64 / self.sample_rate())
-    }
-    fn channels(&self) -> usize;
-    fn samples(&self) -> usize;
-    fn sample_rate(&self) -> SampleRate;
 }
 
 pub trait BufferMut: Buffer {
@@ -106,6 +103,14 @@ pub trait BufferMut: Buffer {
     }
 
     fn set_to_equilibrium(&mut self);
+}
+
+pub trait TemporalBuffer: Buffer {
+    fn sample_rate(&self) -> SampleRate;
+
+    fn duration(&self) -> Duration {
+        Duration::from_secs_f64(self.frames() as f64 / self.sample_rate())
+    }
 }
 
 pub trait ResizableBuffer: Buffer {
@@ -178,10 +183,6 @@ where
     fn samples(&self) -> usize {
         (**self).samples()
     }
-
-    fn sample_rate(&self) -> SampleRate {
-        (**self).sample_rate()
-    }
 }
 
 impl<T> Buffer for Arc<T>
@@ -232,9 +233,5 @@ where
 
     fn samples(&self) -> usize {
         (**self).samples()
-    }
-
-    fn sample_rate(&self) -> SampleRate {
-        (**self).sample_rate()
     }
 }

@@ -4,22 +4,20 @@ use std::{
 };
 
 use audio_buffer::{buffers::interleaved::InterleavedBuffer, core::Buffer};
-use time::{FrameTime, SampleRate};
+use time::FrameTime;
 
 pub struct BufferArena<T> {
     // (channels, buffer_size)
     free: HashMap<(usize, FrameTime), VecDeque<InterleavedBuffer<T>>>,
-    sample_rate: SampleRate,
 }
 
 impl<T> BufferArena<T>
 where
     T: audio_buffer::dasp::Sample,
 {
-    pub fn new(sample_rate: SampleRate) -> Self {
+    pub fn new() -> Self {
         Self {
             free: HashMap::new(),
-            sample_rate,
         }
     }
 
@@ -27,14 +25,12 @@ where
         match self.free.get_mut(&(channels, buffer_size)) {
             Some(queue) => queue.push_front(InterleavedBuffer::with_shape(
                 NonZero::new(channels).unwrap(),
-                self.sample_rate,
                 buffer_size,
             )),
             None => {
                 let mut queue = VecDeque::new();
                 queue.push_front(InterleavedBuffer::with_shape(
                     NonZero::new(channels).unwrap(),
-                    self.sample_rate,
                     buffer_size,
                 ));
                 self.free.insert((channels, buffer_size), queue);

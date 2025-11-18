@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use time::{FrameTime, SampleRate};
+use time::FrameTime;
 
 use self::iter::ChannelIter;
 use crate::{
@@ -35,7 +35,6 @@ impl<T> IndexMut<usize> for Vec<T> {
 pub struct InterleavedBuffer<T> {
     data: Vec<T>,
     channels: NonZeroUsize,
-    sample_rate: SampleRate,
 }
 
 impl<T> InterleavedBuffer<T> {
@@ -49,19 +48,17 @@ impl<T> InterleavedBuffer<T> {
 }
 
 impl<T: dasp::Sample> InterleavedBuffer<T> {
-    pub fn new(channels: NonZeroUsize, sample_rate: SampleRate) -> Self {
+    pub fn new(channels: NonZeroUsize) -> Self {
         Self {
             data: Vec::<T>::new(),
             channels,
-            sample_rate,
         }
     }
 
-    pub fn with_shape(channels: NonZeroUsize, sample_rate: SampleRate, frames: FrameTime) -> Self {
+    pub fn with_shape(channels: NonZeroUsize, frames: FrameTime) -> Self {
         Self {
             data: vec![T::EQUILIBRIUM; (frames * channels.get() as u64).0 as usize],
             channels,
-            sample_rate,
         }
     }
 }
@@ -120,10 +117,6 @@ impl<T: dasp::Sample> Buffer for InterleavedBuffer<T> {
 
     fn channels(&self) -> usize {
         self.channels.into()
-    }
-
-    fn sample_rate(&self) -> SampleRate {
-        self.sample_rate
     }
 }
 
@@ -195,11 +188,8 @@ mod tests {
 
     #[test]
     fn with_shape_is_full() {
-        let buffer = InterleavedBuffer::<f32>::with_shape(
-            NonZero::new(2).unwrap(),
-            SampleRate::default(),
-            time::FrameTime(256),
-        );
+        let buffer =
+            InterleavedBuffer::<f32>::with_shape(NonZero::new(2).unwrap(), time::FrameTime(256));
         assert_eq!(buffer.samples(), 512);
         assert_eq!(buffer.channels(), 2);
         assert_eq!(buffer.frames(), 256);
@@ -207,7 +197,7 @@ mod tests {
 
     #[test]
     fn new_buffer_is_empty() {
-        let buffer = InterleavedBuffer::<f32>::new(NonZero::new(2).unwrap(), SampleRate::default());
+        let buffer = InterleavedBuffer::<f32>::new(NonZero::new(2).unwrap());
         assert_eq!(buffer.samples(), 0);
         assert_eq!(buffer.frames(), 0);
         assert_eq!(buffer.channels(), 2);
@@ -215,11 +205,8 @@ mod tests {
 
     #[test]
     fn get_frame_returns_correct_slice() {
-        let mut buffer = InterleavedBuffer::<f32>::with_shape(
-            NonZero::new(2).unwrap(),
-            SampleRate::default(),
-            time::FrameTime(3),
-        );
+        let mut buffer =
+            InterleavedBuffer::<f32>::with_shape(NonZero::new(2).unwrap(), time::FrameTime(3));
 
         buffer.data[4] = 5.0;
         buffer.data[5] = 6.7;
@@ -236,11 +223,8 @@ mod tests {
 
     #[test]
     fn get_channel_returns_correct_view() {
-        let buffer = InterleavedBuffer::<f32>::with_shape(
-            NonZero::new(2).unwrap(),
-            SampleRate::default(),
-            time::FrameTime(2),
-        );
+        let buffer =
+            InterleavedBuffer::<f32>::with_shape(NonZero::new(2).unwrap(), time::FrameTime(2));
 
         let channel0 = buffer.get_channel(0).unwrap();
         let channel1 = buffer.get_channel(1).unwrap();
@@ -255,11 +239,8 @@ mod tests {
 
     #[test]
     fn with_frame_mut_changes_values() {
-        let mut buffer = InterleavedBuffer::<f32>::with_shape(
-            NonZero::new(2).unwrap(),
-            SampleRate::default(),
-            time::FrameTime(3),
-        );
+        let mut buffer =
+            InterleavedBuffer::<f32>::with_shape(NonZero::new(2).unwrap(), time::FrameTime(3));
 
         buffer.with_frame_mut(2, |frame| {
             frame[0] = 1.0;
@@ -272,11 +253,8 @@ mod tests {
 
     #[test]
     fn with_channel_mut_changes_values() {
-        let mut buffer = InterleavedBuffer::<f32>::with_shape(
-            NonZero::new(2).unwrap(),
-            SampleRate::default(),
-            time::FrameTime(2),
-        );
+        let mut buffer =
+            InterleavedBuffer::<f32>::with_shape(NonZero::new(2).unwrap(), time::FrameTime(2));
 
         buffer.with_channel_mut(0, |mut channel| {
             channel.map_samples_mut(
@@ -298,11 +276,8 @@ mod tests {
 
     #[test]
     fn iter_frames_returns_correct_chunks() {
-        let buffer = InterleavedBuffer::<f32>::with_shape(
-            NonZero::new(2).unwrap(),
-            SampleRate::default(),
-            time::FrameTime(3),
-        );
+        let buffer =
+            InterleavedBuffer::<f32>::with_shape(NonZero::new(2).unwrap(), time::FrameTime(3));
 
         let frames: Vec<_> = buffer.iter_frames().collect();
         assert_eq!(frames.len(), 3);
@@ -311,11 +286,8 @@ mod tests {
 
     #[test]
     fn resize_changes_frames() {
-        let mut buffer = InterleavedBuffer::<f32>::with_shape(
-            NonZero::new(2).unwrap(),
-            SampleRate::default(),
-            time::FrameTime(2),
-        );
+        let mut buffer =
+            InterleavedBuffer::<f32>::with_shape(NonZero::new(2).unwrap(), time::FrameTime(2));
 
         buffer.resize(4);
         assert_eq!(buffer.frames(), 4);
@@ -324,11 +296,8 @@ mod tests {
 
     #[test]
     fn set_to_equilibrium_fills_buffer() {
-        let mut buffer = InterleavedBuffer::<f32>::with_shape(
-            NonZero::new(2).unwrap(),
-            SampleRate::default(),
-            time::FrameTime(3),
-        );
+        let mut buffer =
+            InterleavedBuffer::<f32>::with_shape(NonZero::new(2).unwrap(), time::FrameTime(3));
 
         buffer.set_to_equilibrium();
         assert!(buffer.data.iter().all(|&s| s == f32::EQUILIBRIUM));

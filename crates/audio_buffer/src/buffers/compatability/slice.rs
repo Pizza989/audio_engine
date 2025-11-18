@@ -1,5 +1,3 @@
-use time::SampleRate;
-
 use crate::{
     buffers::view::{Index, View},
     core::Buffer,
@@ -71,16 +69,11 @@ impl<T> Index<usize> for &[T] {
 pub struct WrapInterleaved<'a, T> {
     data: &'a [T],
     channels: usize,
-    sample_rate: SampleRate,
 }
 
 impl<'a, T> WrapInterleaved<'a, T> {
-    pub fn new(data: &'a [T], channels: usize, sample_rate: SampleRate) -> Self {
-        Self {
-            data,
-            channels,
-            sample_rate,
-        }
+    pub fn new(data: &'a [T], channels: usize) -> Self {
+        Self { data, channels }
     }
 }
 
@@ -134,10 +127,6 @@ impl<'a, T: dasp::Sample> Buffer for WrapInterleaved<'a, T> {
 
     fn samples(&self) -> usize {
         self.data.len()
-    }
-
-    fn sample_rate(&self) -> SampleRate {
-        self.sample_rate
     }
 }
 
