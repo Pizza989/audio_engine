@@ -1,31 +1,35 @@
-use audio_graph::{daggy::NodeIndex, pin_matrix::PinMatrix};
+use audio_graph::{
+    daggy::{EdgeIndex, NodeIndex},
+    pin_matrix::PinMatrix,
+};
 use time::MusicalTime;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MessageId(pub u64);
+
+#[derive(Debug, Clone)]
 pub struct AudioEngineMessage {
     pub id: MessageId,
     pub status: AudioEngineStatus,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AudioEngineStatus {
     InvalidConnection {
         source: NodeIndex,
         destination: NodeIndex,
         matrix: PinMatrix,
     },
+    Ok,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AudioBackendMessage {
     pub id: MessageId,
     pub command: AudioBackendCommand,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MessageId(u64);
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AudioBackendCommand {
     Start,
     Pause,
@@ -34,6 +38,10 @@ pub enum AudioBackendCommand {
     AddConnection {
         source: NodeIndex,
         destination: NodeIndex,
+        matrix: PinMatrix,
+    },
+    UpdateConnection {
+        edge: EdgeIndex,
         matrix: PinMatrix,
     },
 }

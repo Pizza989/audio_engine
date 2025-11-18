@@ -120,6 +120,32 @@ where
         Ok(edge_index)
     }
 
+    pub fn update_connection(
+        &mut self,
+        edge_index: EdgeIndex,
+        matrix: PinMatrix,
+    ) -> Option<PinMatrix> {
+        let (start_config, end_config) = {
+            let (start, end) = self.dag.edge_endpoints(edge_index)?;
+            (
+                self.dag.node_weight(start)?.config(),
+                self.dag.node_weight(end)?.config(),
+            )
+        };
+
+        if matrix.input_channels() == start_config.num_output_channels
+            && matrix.output_channels() == end_config.num_input_channels
+        {
+            let connection = self.dag.edge_weight_mut(edge_index)?;
+            let old_matrix = connection.matrix.clone();
+
+            connection.matrix = matrix;
+            Some(old_matrix)
+        } else {
+            None
+        }
+    }
+
     // Invalid States:
     // - the execution order is outdated
     //   after removing a connection

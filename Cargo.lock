@@ -54,6 +54,7 @@ dependencies = [
  "audio_graph",
  "cpal",
  "interavl",
+ "log",
  "ringbuf",
  "time",
 ]

@@ -6,13 +6,18 @@ use audio_buffer::symphonia::core::conv::ConvertibleSample;
 use audio_buffer::{buffers::interleaved::InterleavedBuffer, loader::error::LoadError};
 use audio_graph::AudioGraph;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::HeapRb;
-use ringbuf::traits::Split;
+use ringbuf::traits::{Producer, Split};
+use ringbuf::{HeapCons, HeapProd, HeapRb};
 use time::{FrameTime, SampleRate};
 
 use crate::backend::AudioBackend;
-use crate::message::{AudioBackendMessage, AudioEngineMessage};
+use crate::message::{AudioBackendCommand, AudioBackendMessage, AudioEngineMessage, MessageId};
 use crate::track::Track;
+
+#[derive(Debug)]
+pub enum AudioEngineError {
+    QueueFull,
+}
 
 pub struct AudioEngine<T>
 where
@@ -22,6 +27,9 @@ where
     _sample_rate: SampleRate,
     _bpm: f64,
 
+    next_message_id: u64,
+    command_producer: HeapProd<AudioBackendMessage>,
+    _status_consumer: HeapCons<AudioEngineMessage>,
     _stream: Option<cpal::Stream>,
     _marker: PhantomData<T>,
 }
@@ -31,21 +39,13 @@ where
     T: SharedSample + cpal::SizedSample,
 {
     pub fn new(bpm: f64, sample_rate: SampleRate, block_size: FrameTime) -> Self {
-        let (_cmd_prod, cmd_cons) = HeapRb::<AudioBackendMessage>::new(256).split();
-        let (status_prod, _status_cons) = HeapRb::<AudioEngineMessage>::new(256).split();
+        let (cmd_prod, cmd_cons) = HeapRb::<AudioBackendMessage>::new(256).split();
+        let (_status_prod, status_cons) = HeapRb::<AudioEngineMessage>::new(256).split();
 
         let master_track = Track::from_config(sample_rate, block_size);
         let (graph, master_idx) = AudioGraph::new(master_track, sample_rate, block_size);
 
-        let backend = AudioBackend::new(
-            cmd_cons,
-            status_prod,
-            graph,
-            master_idx,
-            block_size,
-            bpm,
-            sample_rate,
-        );
+        let backend = AudioBackend::new(cmd_cons, graph, master_idx, block_size, bpm, sample_rate);
 
         let stream = Self::start_stream(backend);
 
@@ -55,6 +55,9 @@ where
             _bpm: bpm,
             _stream: Some(stream),
             _marker: PhantomData,
+            command_producer: cmd_prod,
+            _status_consumer: status_cons,
+            next_message_id: 0,
         }
     }
 
@@ -79,6 +82,32 @@ where
 
         stream.play().expect("failed to play stream");
         stream
+    }
+
+    fn next_message_id(&mut self) -> MessageId {
+        let id = self.next_message_id;
+        self.next_message_id = self.next_message_id.wrapping_add(1);
+        MessageId(id)
+    }
+
+    fn new_message(&mut self, command: AudioBackendCommand) -> AudioBackendMessage {
+        AudioBackendMessage {
+            id: self.next_message_id(),
+            command,
+        }
+    }
+
+    pub fn dispatch_command(
+        &mut self,
+        command: AudioBackendCommand,
+    ) -> Result<(), AudioEngineError> {
+        let message = self.new_message(command);
+
+        self.command_producer
+            .try_push(message)
+            .map_err(|_| AudioEngineError::QueueFull)?;
+
+        Ok(())
     }
 
     pub fn load_audio_file(

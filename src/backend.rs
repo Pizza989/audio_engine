@@ -5,22 +5,23 @@ use audio_buffer::{
     buffers::interleaved::InterleavedBuffer,
     core::{Buffer, BufferMut, io::mix_buffers},
 };
-use audio_graph::{AudioGraph, daggy::NodeIndex, pin_matrix::PinMatrix};
-use ringbuf::{
-    HeapCons, HeapProd,
-    traits::{Consumer, Producer},
+use audio_graph::{
+    AudioGraph,
+    daggy::{EdgeIndex, NodeIndex},
+    pin_matrix::PinMatrix,
 };
+use log::error;
+use ringbuf::{HeapCons, traits::Consumer};
 use time::{FrameTime, MusicalTime, SampleRate};
 
 use crate::{
-    message::{AudioBackendCommand, AudioBackendMessage, AudioEngineMessage, AudioEngineStatus},
+    message::{AudioBackendCommand, AudioBackendMessage},
     track::Track,
 };
 
 pub struct AudioBackend<T: SharedSample> {
     pub(crate) command_consumer: HeapCons<AudioBackendMessage>,
-    pub(crate) status_producer: HeapProd<AudioEngineMessage>,
-
+    // pub(crate) status_producer: HeapProd<AudioEngineMessage>,
     pub(crate) graph: AudioGraph<T, Track<T>>,
     pub(crate) master: NodeIndex,
     pub(crate) master_buffer: InterleavedBuffer<T>,
@@ -36,9 +37,40 @@ pub struct AudioBackend<T: SharedSample> {
 }
 
 impl<T: SharedSample> AudioBackend<T> {
+    pub fn add_track(&mut self) {
+        let index = self
+            .graph
+            .add_node(Track::from_config(self.sample_rate, self.block_size));
+
+        self.graph
+            .add_connection(index, self.master, PinMatrix::diagonal(2, 2))
+            .expect("logic error");
+
+        self.track_buffers.insert(
+            index,
+            InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), self.block_size),
+        );
+    }
+    pub fn add_connection(&mut self, source: NodeIndex, destination: NodeIndex, matrix: PinMatrix) {
+        if let Err(e) = self.graph.add_connection(source, destination, matrix) {
+            error!(
+                "Error while adding a connection to the audio graph: {:?}",
+                e
+            );
+        }
+    }
+
+    pub fn update_connection(&mut self, edge: EdgeIndex, matrix: PinMatrix) {
+        if let None = self.graph.update_connection(edge, matrix) {
+            error!("Error while updating connection");
+        }
+    }
+}
+
+impl<T: SharedSample> AudioBackend<T> {
     pub fn new(
         command_consumer: HeapCons<AudioBackendMessage>,
-        status_producer: HeapProd<AudioEngineMessage>,
+        // status_producer: HeapProd<AudioEngineMessage>,
         graph: AudioGraph<T, Track<T>>,
         master: NodeIndex,
         block_size: FrameTime,
@@ -47,7 +79,7 @@ impl<T: SharedSample> AudioBackend<T> {
     ) -> Self {
         Self {
             command_consumer,
-            status_producer,
+            // status_producer,
             graph,
             master,
             master_buffer: InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), block_size),
@@ -69,41 +101,14 @@ impl<T: SharedSample> AudioBackend<T> {
                 AudioBackendCommand::SetPlayhead(musical_time) => {
                     self.block_range = musical_time..musical_time + self.block_duration_musical
                 }
-                AudioBackendCommand::AddTrack => {
-                    let index = self
-                        .graph
-                        .add_node(Track::from_config(self.sample_rate, self.block_size));
-
-                    self.graph
-                        .add_connection(index, self.master, PinMatrix::diagonal(2, 2))
-                        .expect("logic error");
-
-                    self.track_buffers.insert(
-                        index,
-                        InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), self.block_size),
-                    );
-                }
+                AudioBackendCommand::AddTrack => self.add_track(),
                 AudioBackendCommand::AddConnection {
                     source,
                     destination,
                     matrix,
-                } => {
-                    let result = self
-                        .graph
-                        .add_connection(source, destination, matrix.clone());
-
-                    if result.is_err() {
-                        self.status_producer
-                            .try_push(AudioEngineMessage {
-                                id: message.id,
-                                status: AudioEngineStatus::InvalidConnection {
-                                    source,
-                                    destination,
-                                    matrix,
-                                },
-                            })
-                            .expect("ringbuffer full");
-                    }
+                } => self.add_connection(source, destination, matrix),
+                AudioBackendCommand::UpdateConnection { edge, matrix } => {
+                    self.update_connection(edge, matrix)
                 }
             }
         }
