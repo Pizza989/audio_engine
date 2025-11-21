@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZero, ops::Range};
 
+use audio_buffer::{buffers::interleaved::InterleavedBuffer, core::io::mix_buffers};
 use audio_graph::{
     AudioGraph,
     daggy::NodeIndex,
-    processor::{AudioProcessor, PassThrough},
+    processor::{AudioProcessor, PassThrough, ProcessingInformation},
 };
-use time::{FrameTime, SampleRate};
+use time::{FrameTime, MusicalTime, SampleRate};
 
 use crate::playlist::Playlist;
 
@@ -14,6 +15,7 @@ where
     T: audio_buffer::dasp::Sample,
 {
     graph: AudioGraph<T, Box<dyn AudioProcessor<T>>>,
+    buffer: InterleavedBuffer<T>,
     playlist: Playlist<T>,
     // INVARIANT: `input` must never dangle
     input: NodeIndex,
@@ -35,14 +37,7 @@ where
             graph,
             input,
             playlist: Playlist::empty(),
-        }
-    }
-
-    pub fn from_graph(graph: AudioGraph<T, Box<dyn AudioProcessor<T>>>, input: NodeIndex) -> Self {
-        Self {
-            graph,
-            input,
-            playlist: Playlist::empty(),
+            buffer: InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), block_size),
         }
     }
 
@@ -63,10 +58,26 @@ where
         &mut self,
         input: &audio_buffer::buffers::interleaved::InterleavedBuffer<T>,
         output: &mut audio_buffer::buffers::interleaved::InterleavedBuffer<T>,
+        processing_info: ProcessingInformation,
     ) {
+        let block_events = self.get_playlist().get_block_events(
+            processing_info.block_range,
+            processing_info.bpm,
+            processing_info.sample_rate,
+        );
+
+        for block_event in block_events {
+            mix_buffers(
+                &block_event.event.buffer,
+                self.buffer,
+                Some(block_event.block_offset.0 as usize),
+            )
+            .expect("precondition a");
+        }
+
         let mut inputs = HashMap::new();
-        inputs.insert(self.input, input);
-        self.graph.process_block(&inputs, output);
+        inputs.insert(self.input, &self.buffer);
+        self.graph.process_block(&inputs, output, processing_info);
     }
 
     fn config(&self) -> audio_graph::processor::ProcessorConfiguration {

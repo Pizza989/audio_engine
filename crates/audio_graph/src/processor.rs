@@ -1,9 +1,12 @@
+use std::ops::Range;
+
 use audio_buffer::{
     buffers::interleaved::InterleavedBuffer,
     core::{Buffer, io::mix_buffers},
     dasp,
 };
 use slotmap::new_key_type;
+use time::{MusicalTime, SampleRate};
 
 use crate::error::ProcessingError;
 
@@ -14,6 +17,7 @@ pub trait AudioProcessor<T: dasp::Sample>: Send {
         &mut self,
         input: &InterleavedBuffer<T>,
         output: &mut InterleavedBuffer<T>,
+        processing_info: ProcessingInformation,
     ) -> Result<(), ProcessingError> {
         let config = self.config();
         if config.num_input_channels != input.channels()
@@ -21,7 +25,7 @@ pub trait AudioProcessor<T: dasp::Sample>: Send {
         {
             return Err(ProcessingError::InvalidBuffers);
         } else {
-            self.process_unchecked(input, output);
+            self.process_unchecked(input, output, processing_info);
             Ok(())
         }
     }
@@ -30,6 +34,7 @@ pub trait AudioProcessor<T: dasp::Sample>: Send {
         &mut self,
         input: &InterleavedBuffer<T>,
         output: &mut InterleavedBuffer<T>,
+        processing_info: ProcessingInformation,
     );
 
     fn config(&self) -> ProcessorConfiguration;
@@ -44,8 +49,9 @@ where
         &mut self,
         input: &InterleavedBuffer<S>,
         output: &mut InterleavedBuffer<S>,
+        processing_info: ProcessingInformation,
     ) {
-        (**self).process_unchecked(input, output);
+        (**self).process_unchecked(input, output, processing_info);
     }
 
     fn config(&self) -> ProcessorConfiguration {
@@ -99,6 +105,7 @@ where
         &mut self,
         input: &InterleavedBuffer<T>,
         output: &mut InterleavedBuffer<T>,
+        processing_info: ProcessingInformation,
     ) {
         mix_buffers(input, output, None).expect("this is the unchecked method");
     }
@@ -109,6 +116,12 @@ where
             num_output_channels: self.num_output_channels,
         }
     }
+}
+
+pub struct ProcessingInformation {
+    pub sample_rate: SampleRate,
+    pub bpm: f64,
+    pub block_range: Range<MusicalTime>,
 }
 
 pub struct ProcessorConfiguration {

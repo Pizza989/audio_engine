@@ -143,38 +143,8 @@ impl<T: SharedSample> AudioBackend<T> {
             return;
         }
 
-        for track_index in self.graph.get_dag().graph().node_indices() {
-            if track_index == self.master {
-                continue;
-            }
-
-            let track = self.graph.get_node(track_index).expect("logic error");
-
-            let block_events = track.get_playlist().get_block_events(
-                self.block_range.clone(),
-                self.bpm,
-                self.sample_rate,
-            );
-
-            let track_buffer = self
-                .track_buffers
-                .get_mut(&track_index)
-                .expect("precondition a");
-
-            for block_event in block_events {
-                mix_buffers(
-                    &block_event.event.buffer,
-                    track_buffer,
-                    Some(block_event.block_offset.0 as usize),
-                )
-                .expect("precondition a");
-            }
-        }
-
-        self.graph.process_block(
-            &self.track_buffers.iter().map(|(&k, v)| (k, v)).collect(),
-            &mut self.master_buffer,
-        );
+        self.graph
+            .process_block(HashMap::new(), &mut self.master_buffer, self.block_range);
 
         // TODO: make clean adapter abstraction
         let channels = self.master_buffer.channels();

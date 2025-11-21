@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Range;
 
 use audio_buffer::buffers::interleaved::InterleavedBuffer;
 use audio_buffer::core::Buffer;
@@ -8,6 +9,7 @@ use audio_buffer::dasp;
 use daggy::petgraph::visit::IntoNeighbors;
 use daggy::{Dag, EdgeIndex, NodeIndex, Walker, petgraph};
 use time::FrameTime;
+use time::MusicalTime;
 use time::SampleRate;
 
 use crate::buffer_pool::BufferArena;
@@ -206,6 +208,7 @@ where
         &mut self,
         inputs: &HashMap<NodeIndex, &InterleavedBuffer<T>>,
         output: &mut InterleavedBuffer<T>,
+        block_range: Range<MusicalTime>,
     ) {
         let mut node_outputs: HashMap<NodeIndex, InterleavedBuffer<T>> = HashMap::new();
 
@@ -232,6 +235,7 @@ where
                             node_outputs.insert(node_idx, node_output);
                             node_outputs.get_mut(&node_idx).unwrap()
                         },
+                        block_range.clone(),
                     );
             } else {
                 let mut mixed = self
@@ -256,6 +260,7 @@ where
                             node_outputs.insert(node_idx, node_output);
                             node_outputs.get_mut(&node_idx).unwrap()
                         },
+                        block_range.clone(),
                     );
 
                 mixed.set_to_equilibrium();
