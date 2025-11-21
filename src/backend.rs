@@ -11,52 +11,73 @@ use audio_graph::{
     pin_matrix::PinMatrix,
 };
 use log::error;
-use ringbuf::{HeapCons, traits::Consumer};
+use ringbuf::{
+    HeapCons, HeapProd,
+    traits::{Consumer, Producer},
+};
 use time::{FrameTime, MusicalTime, SampleRate};
 
 use crate::{
-    message::{AudioBackendCommand, AudioBackendMessage, Intent},
+    message::{AudioBackendCommand, AudioBackendMessage, AudioEngineMessage, MessageId},
     track::Track,
 };
 
 pub struct AudioBackend<T: SharedSample> {
-    pub(crate) command_consumer: HeapCons<AudioBackendMessage>,
-    // pub(crate) status_producer: HeapProd<AudioEngineMessage>,
-    pub(crate) graph: AudioGraph<T, Track<T>>,
-    pub(crate) master: NodeIndex,
-    pub(crate) master_buffer: InterleavedBuffer<T>,
-    pub(crate) track_buffers: HashMap<NodeIndex, InterleavedBuffer<T>>,
+    command_consumer: HeapCons<AudioBackendMessage>,
+    status_producer: HeapProd<AudioEngineMessage>,
+    graph: AudioGraph<T, Track<T>>,
+    master: NodeIndex,
+    master_buffer: InterleavedBuffer<T>,
+    track_buffers: HashMap<NodeIndex, InterleavedBuffer<T>>,
 
-    pub(crate) block_size: FrameTime,
-    pub(crate) block_duration_musical: MusicalTime,
-    pub(crate) block_range: Range<MusicalTime>,
-    pub(crate) bpm: f64,
-    pub(crate) sample_rate: SampleRate,
+    block_size: FrameTime,
+    block_duration_musical: MusicalTime,
+    block_range: Range<MusicalTime>,
+    bpm: f64,
+    sample_rate: SampleRate,
 
-    pub(crate) running: bool,
+    running: bool,
 }
 
 impl<T: SharedSample> AudioBackend<T> {
-    pub fn add_track(&mut self) {
+    pub fn add_track(&mut self, message_id: MessageId) {
         let index = self
             .graph
             .add_node(Track::from_config(self.sample_rate, self.block_size));
 
-        self.graph
-            .add_connection(index, self.master, PinMatrix::diagonal(2, 2))
-            .expect("logic error");
+        self.add_connection(index, self.master, PinMatrix::diagonal(2, 2), message_id);
 
         self.track_buffers.insert(
             index,
             InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), self.block_size),
         );
     }
-    pub fn add_connection(&mut self, source: NodeIndex, destination: NodeIndex, matrix: PinMatrix) {
-        if let Err(e) = self.graph.add_connection(source, destination, matrix) {
-            error!(
-                "Error while adding a connection to the audio graph: {:?}",
-                e
-            );
+    pub fn add_connection(
+        &mut self,
+        source: NodeIndex,
+        destination: NodeIndex,
+        matrix: PinMatrix,
+        message_id: MessageId,
+    ) {
+        match self.graph.add_connection(source, destination, matrix) {
+            Ok(index) => {
+                self.status_producer
+                    .try_push(AudioEngineMessage {
+                        id: message_id,
+                        status: crate::message::AudioEngineStatus::AddEdge {
+                            index,
+                            source,
+                            destination,
+                        },
+                    })
+                    .expect("status ringbuffer overflow");
+            }
+            Err(e) => {
+                error!(
+                    "Error while adding a connection to the audio graph: {:?}",
+                    e
+                );
+            }
         }
     }
 
@@ -70,7 +91,7 @@ impl<T: SharedSample> AudioBackend<T> {
 impl<T: SharedSample> AudioBackend<T> {
     pub fn new(
         command_consumer: HeapCons<AudioBackendMessage>,
-        // status_producer: HeapProd<AudioEngineMessage>,
+        status_producer: HeapProd<AudioEngineMessage>,
         graph: AudioGraph<T, Track<T>>,
         master: NodeIndex,
         block_size: FrameTime,
@@ -79,7 +100,7 @@ impl<T: SharedSample> AudioBackend<T> {
     ) -> Self {
         Self {
             command_consumer,
-            // status_producer,
+            status_producer,
             graph,
             master,
             master_buffer: InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), block_size),
@@ -95,24 +116,21 @@ impl<T: SharedSample> AudioBackend<T> {
 
     pub fn process_messages(&mut self) {
         while let Some(message) = self.command_consumer.try_pop() {
-            match message.intent {
-                Intent::Query(query) => (),
-                Intent::Command(command) => match command {
-                    AudioBackendCommand::Start => self.running = true,
-                    AudioBackendCommand::Pause => self.running = false,
-                    AudioBackendCommand::SetPlayhead(musical_time) => {
-                        self.block_range = musical_time..musical_time + self.block_duration_musical
-                    }
-                    AudioBackendCommand::AddTrack => self.add_track(),
-                    AudioBackendCommand::AddConnection {
-                        source,
-                        destination,
-                        matrix,
-                    } => self.add_connection(source, destination, matrix),
-                    AudioBackendCommand::UpdateConnection { edge, matrix } => {
-                        self.update_connection(edge, matrix)
-                    }
-                },
+            match message.command {
+                AudioBackendCommand::Start => self.running = true,
+                AudioBackendCommand::Pause => self.running = false,
+                AudioBackendCommand::SetPlayhead(musical_time) => {
+                    self.block_range = musical_time..musical_time + self.block_duration_musical
+                }
+                AudioBackendCommand::AddTrack => self.add_track(message.id),
+                AudioBackendCommand::AddConnection {
+                    source,
+                    destination,
+                    matrix,
+                } => self.add_connection(source, destination, matrix, message.id),
+                AudioBackendCommand::UpdateConnection { edge, matrix } => {
+                    self.update_connection(edge, matrix)
+                }
             }
         }
     }

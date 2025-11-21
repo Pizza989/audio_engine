@@ -22,6 +22,7 @@ pub mod buffer_pool;
 pub mod error;
 pub mod pin_matrix;
 pub mod processor;
+pub mod shared_audio_graph;
 
 pub struct Connection {
     matrix: PinMatrix,

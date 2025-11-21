@@ -3,8 +3,11 @@ use audio_buffer::{
     core::{Buffer, io::mix_buffers},
     dasp,
 };
+use slotmap::new_key_type;
 
 use crate::error::ProcessingError;
+
+new_key_type! { pub struct ProcessorKey; }
 
 pub trait AudioProcessor<T: dasp::Sample>: Send {
     fn process(

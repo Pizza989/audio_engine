@@ -1,20 +1,17 @@
-use std::collections::VecDeque;
-use std::marker::PhantomData;
-use std::{path::Path, sync::Arc};
-
 use audio_buffer::SharedSample;
-use audio_buffer::symphonia::core::conv::ConvertibleSample;
-use audio_buffer::{buffers::interleaved::InterleavedBuffer, loader::error::LoadError};
 use audio_graph::AudioGraph;
+use audio_graph::daggy::{Dag, EdgeIndex, NodeIndex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::marker::PhantomData;
 use time::{FrameTime, SampleRate};
 
+use crate::adjacency_matrix::AdjacencyMatrix;
 use crate::backend::AudioBackend;
 use crate::message::{
-    AudioBackendCommand, AudioBackendMessage, AudioBackendQuery, AudioEngineMessage, Intent,
-    MessageId,
+    AudioBackendCommand, AudioBackendMessage, AudioEngineMessage, AudioEngineStatus, MessageId,
 };
 use crate::track::Track;
 
@@ -23,6 +20,9 @@ pub enum AudioEngineError {
     QueueFull,
 }
 
+pub struct EmptyWeight;
+pub type StructuralGraph = Dag<EmptyWeight, EmptyWeight>;
+
 pub struct AudioEngine<T>
 where
     T: audio_buffer::dasp::Sample + 'static,
@@ -30,6 +30,9 @@ where
     _block_size: FrameTime,
     _sample_rate: SampleRate,
     _bpm: f64,
+    // A structurally indentical version of the audio graph owned by the backend
+    // INVARIANT: must be up to date with the backend's graph
+    adjacency_matrix: AdjacencyMatrix,
 
     next_message_id: u64,
     command_producer: HeapProd<AudioBackendMessage>,
@@ -41,16 +44,65 @@ where
 
 impl<T> AudioEngine<T>
 where
+    T: audio_buffer::dasp::Sample + 'static,
+{
+    /// Get a reference to a HashSet of NodeIndices
+    ///
+    /// # PRECONDITIONS
+    /// User must make sure the graph is updated with the {} method
+    // TODO: update docs when there is a unified update method
+    pub fn nodes(&mut self) -> &HashSet<NodeIndex> {
+        self.adjacency_matrix.nodes()
+    }
+
+    /// Get a reference to a map from EdgeIndex to edge
+    ///
+    /// # PRECONDITIONS
+    /// User must make sure the graph is updated with the {} method
+    // TODO: update docs when there is a unified update method
+    pub fn edges(&mut self) -> &HashMap<EdgeIndex, (NodeIndex, NodeIndex)> {
+        self.adjacency_matrix.edges()
+    }
+
+    pub fn update_adjacency_matrix(&mut self) {
+        while let Some(message) = self.status_consumer.try_pop() {
+            match message.status {
+                AudioEngineStatus::RemoveNode(node_index) => todo!(),
+                AudioEngineStatus::AddEdge {
+                    index,
+                    source,
+                    destination,
+                } => todo!(),
+                AudioEngineStatus::RemoveEdge(edge_index) => todo!(),
+                AudioEngineStatus::AddNode(node_index) => todo!(),
+            }
+        }
+    }
+}
+
+impl<T> AudioEngine<T>
+where
     T: SharedSample + cpal::SizedSample,
 {
     pub fn new(bpm: f64, sample_rate: SampleRate, block_size: FrameTime) -> Self {
         let (cmd_prod, cmd_cons) = HeapRb::<AudioBackendMessage>::new(256).split();
-        let (_status_prod, status_cons) = HeapRb::<AudioEngineMessage>::new(256).split();
+        let (status_prod, status_cons) = HeapRb::<AudioEngineMessage>::new(256).split();
 
         let master_track = Track::from_config(sample_rate, block_size);
         let (graph, master_idx) = AudioGraph::new(master_track, sample_rate, block_size);
 
-        let backend = AudioBackend::new(cmd_cons, graph, master_idx, block_size, bpm, sample_rate);
+        let mut adjacency_matrix = AdjacencyMatrix::empty();
+        adjacency_matrix.add_node(master_idx);
+
+        let backend = AudioBackend::new(
+            cmd_cons,
+            status_prod,
+            graph,
+            master_idx,
+            block_size,
+            bpm,
+            sample_rate,
+        );
 
         let stream = Self::start_stream(backend);
 
@@ -64,6 +116,7 @@ where
             status_consumer: status_cons,
             next_message_id: 0,
             status_message_cache: VecDeque::new(),
+            adjacency_matrix,
         }
     }
 
@@ -96,50 +149,23 @@ where
         MessageId(id)
     }
 
-    fn new_message(&mut self, intent: Intent) -> AudioBackendMessage {
+    fn new_message(&mut self, command: AudioBackendCommand) -> AudioBackendMessage {
         AudioBackendMessage {
             id: self.next_message_id(),
-            intent,
+            command,
         }
-    }
-
-    pub fn dispatch_query(&mut self, query: AudioBackendQuery) -> Result<(), AudioEngineError> {
-        let message = self.new_message(Intent::Query(query));
-        let message_id = message.id;
-        self.status_message_cache
-            .extend(self.status_consumer.pop_iter());
-
-        self.command_producer
-            .try_push(message)
-            .map_err(|_| AudioEngineError::QueueFull)?;
-
-        while let Some(status) = self.status_consumer.try_pop() {
-            if status.id == message_id {}
-        }
-
-        Ok(())
     }
 
     pub fn dispatch_command(
         &mut self,
         command: AudioBackendCommand,
     ) -> Result<(), AudioEngineError> {
-        let message = self.new_message(Intent::Command(command));
+        let message = self.new_message(command);
 
         self.command_producer
             .try_push(message)
             .map_err(|_| AudioEngineError::QueueFull)?;
 
         Ok(())
-    }
-
-    pub fn load_audio_file(
-        &mut self,
-        path: impl AsRef<Path>,
-    ) -> Result<Arc<InterleavedBuffer<T>>, LoadError>
-    where
-        T: ConvertibleSample,
-    {
-        audio_buffer::loader::load(path).map(|buffer| Arc::new(buffer))
     }
 }

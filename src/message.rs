@@ -15,28 +15,21 @@ pub struct AudioEngineMessage {
 
 #[derive(Debug, Clone)]
 pub enum AudioEngineStatus {
-    InvalidConnection {
+    AddNode(NodeIndex),
+    RemoveNode(NodeIndex),
+    AddEdge {
+        index: EdgeIndex,
         source: NodeIndex,
         destination: NodeIndex,
-        matrix: PinMatrix,
     },
-    Ok,
+    RemoveEdge(EdgeIndex),
 }
 
 #[derive(Debug, Clone)]
 pub struct AudioBackendMessage {
     pub id: MessageId,
-    pub intent: Intent,
+    pub command: AudioBackendCommand,
 }
-
-#[derive(Debug, Clone)]
-pub enum Intent {
-    Query(AudioBackendQuery),
-    Command(AudioBackendCommand),
-}
-
-#[derive(Debug, Clone)]
-pub enum AudioBackendQuery {}
 
 #[derive(Debug, Clone)]
 pub enum AudioBackendCommand {
