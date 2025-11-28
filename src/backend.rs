@@ -10,30 +10,29 @@ use audio_graph::{
     daggy::{EdgeIndex, NodeIndex},
     pin_matrix::PinMatrix,
 };
+use crossbeam_channel::Receiver;
 use log::error;
-use ringbuf::{HeapCons, traits::Consumer};
 use time::{FrameTime, MusicalTime, SampleRate};
 
 use crate::{
-    message::{AudioBackendCommand, AudioBackendMessage},
+    command::{AudioCommand, Response},
     track::Track,
 };
 
 pub struct AudioBackend<T: SharedSample> {
-    pub(crate) command_consumer: HeapCons<AudioBackendMessage>,
-    // pub(crate) status_producer: HeapProd<AudioEngineMessage>,
-    pub(crate) graph: AudioGraph<T, Track<T>>,
-    pub(crate) master: NodeIndex,
-    pub(crate) master_buffer: InterleavedBuffer<T>,
-    pub(crate) track_buffers: HashMap<NodeIndex, InterleavedBuffer<T>>,
+    receiver: Receiver<AudioCommand>,
+    graph: AudioGraph<T, Track<T>>,
+    master: NodeIndex,
+    master_buffer: InterleavedBuffer<T>,
+    track_buffers: HashMap<NodeIndex, InterleavedBuffer<T>>,
 
-    pub(crate) block_size: FrameTime,
-    pub(crate) block_duration_musical: MusicalTime,
-    pub(crate) block_range: Range<MusicalTime>,
-    pub(crate) bpm: f64,
-    pub(crate) sample_rate: SampleRate,
+    block_size: FrameTime,
+    block_duration_musical: MusicalTime,
+    block_range: Range<MusicalTime>,
+    bpm: f64,
+    sample_rate: SampleRate,
 
-    pub(crate) running: bool,
+    running: bool,
 }
 
 impl<T: SharedSample> AudioBackend<T> {
@@ -69,8 +68,7 @@ impl<T: SharedSample> AudioBackend<T> {
 
 impl<T: SharedSample> AudioBackend<T> {
     pub fn new(
-        command_consumer: HeapCons<AudioBackendMessage>,
-        // status_producer: HeapProd<AudioEngineMessage>,
+        receiver: Receiver<AudioCommand>,
         graph: AudioGraph<T, Track<T>>,
         master: NodeIndex,
         block_size: FrameTime,
@@ -78,8 +76,6 @@ impl<T: SharedSample> AudioBackend<T> {
         sample_rate: SampleRate,
     ) -> Self {
         Self {
-            command_consumer,
-            // status_producer,
             graph,
             master,
             master_buffer: InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), block_size),
@@ -90,27 +86,16 @@ impl<T: SharedSample> AudioBackend<T> {
             bpm,
             sample_rate,
             running: false,
+            receiver,
         }
     }
 
     pub fn process_commands(&mut self) {
-        while let Some(message) = self.command_consumer.try_pop() {
-            match message.command {
-                AudioBackendCommand::Start => self.running = true,
-                AudioBackendCommand::Pause => self.running = false,
-                AudioBackendCommand::SetPlayhead(musical_time) => {
-                    self.block_range = musical_time..musical_time + self.block_duration_musical
-                }
-                AudioBackendCommand::AddTrack => self.add_track(),
-                AudioBackendCommand::AddConnection {
-                    source,
-                    destination,
-                    matrix,
-                } => self.add_connection(source, destination, matrix),
-                AudioBackendCommand::UpdateConnection { edge, matrix } => {
-                    self.update_connection(edge, matrix)
-                }
-            }
+        while let Ok(command) = self.receiver.try_recv() {
+            command
+                .response_sender
+                .try_send(Response::Ok)
+                .expect("logic error: could not send response with response_sender");
         }
     }
 

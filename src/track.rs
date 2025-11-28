@@ -15,7 +15,10 @@ where
 {
     graph: AudioGraph<T, Box<dyn AudioProcessor<T>>>,
     playlist: Playlist<T>,
-    // INVARIANT: `input` must never dangle
+
+    // INVARIANT: 'Input Validity'
+    // This invariant guarantees that `self.input` always references
+    // a valid `Node` inside `self.graph`.
     input: NodeIndex,
 }
 
@@ -72,6 +75,6 @@ where
     fn config(&self) -> audio_graph::processor::ProcessorConfiguration {
         self.graph
             .get_node_config(self.input)
-            .expect("invariant: input must always be valid")
+            .expect("invariant: 'Input Validity'")
     }
 }

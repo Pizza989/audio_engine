@@ -6,12 +6,11 @@ use audio_buffer::symphonia::core::conv::ConvertibleSample;
 use audio_buffer::{buffers::interleaved::InterleavedBuffer, loader::error::LoadError};
 use audio_graph::AudioGraph;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::traits::{Producer, Split};
-use ringbuf::{HeapCons, HeapProd, HeapRb};
+use crossbeam_channel::{Sender, TryRecvError, TrySendError};
 use time::{FrameTime, SampleRate};
 
 use crate::backend::AudioBackend;
-use crate::message::{AudioBackendCommand, AudioBackendMessage, AudioEngineMessage, MessageId};
+use crate::command::{AudioCommand, Request, Response};
 use crate::track::Track;
 
 #[derive(Debug)]
@@ -27,9 +26,7 @@ where
     _sample_rate: SampleRate,
     _bpm: f64,
 
-    next_message_id: u64,
-    command_producer: HeapProd<AudioBackendMessage>,
-    _status_consumer: HeapCons<AudioEngineMessage>,
+    sender: Sender<AudioCommand>,
     _stream: Option<cpal::Stream>,
     _marker: PhantomData<T>,
 }
@@ -39,13 +36,11 @@ where
     T: SharedSample + cpal::SizedSample,
 {
     pub fn new(bpm: f64, sample_rate: SampleRate, block_size: FrameTime) -> Self {
-        let (cmd_prod, cmd_cons) = HeapRb::<AudioBackendMessage>::new(256).split();
-        let (_status_prod, status_cons) = HeapRb::<AudioEngineMessage>::new(256).split();
-
         let master_track = Track::from_config(sample_rate, block_size);
         let (graph, master_idx) = AudioGraph::new(master_track, sample_rate, block_size);
 
-        let backend = AudioBackend::new(cmd_cons, graph, master_idx, block_size, bpm, sample_rate);
+        let (sender, receiver) = crossbeam_channel::bounded(256);
+        let backend = AudioBackend::new(receiver, graph, master_idx, block_size, bpm, sample_rate);
 
         let stream = Self::start_stream(backend);
 
@@ -55,9 +50,7 @@ where
             _bpm: bpm,
             _stream: Some(stream),
             _marker: PhantomData,
-            command_producer: cmd_prod,
-            _status_consumer: status_cons,
-            next_message_id: 0,
+            sender,
         }
     }
 
@@ -66,14 +59,15 @@ where
         let device = host
             .default_output_device()
             .expect("no output device available");
+
         let config = device.default_output_config().unwrap();
 
         let stream = device
             .build_output_stream(
                 &config.config(),
                 move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                    backend.process_commands();
                     backend.process_block(data);
+                    backend.process_commands();
                 },
                 |err| eprintln!("Stream error: {}", err),
                 None,
@@ -84,39 +78,23 @@ where
         stream
     }
 
-    fn next_message_id(&mut self) -> MessageId {
-        let id = self.next_message_id;
-        self.next_message_id = self.next_message_id.wrapping_add(1);
-        MessageId(id)
+    pub fn try_send_command(&self, request: Request) -> Result<Response, SendCommandError> {
+        let (response_sender, response_receiver) = crossbeam_channel::bounded(1);
+
+        self.sender
+            .try_send(AudioCommand {
+                response_sender,
+                request,
+            })
+            .map_err(|err| SendCommandError::TrySendError(err))?;
+
+        response_receiver
+            .try_recv()
+            .map_err(|err| SendCommandError::TryRecvError(err))
     }
+}
 
-    fn new_message(&mut self, command: AudioBackendCommand) -> AudioBackendMessage {
-        AudioBackendMessage {
-            id: self.next_message_id(),
-            command,
-        }
-    }
-
-    pub fn dispatch_command(
-        &mut self,
-        command: AudioBackendCommand,
-    ) -> Result<(), AudioEngineError> {
-        let message = self.new_message(command);
-
-        self.command_producer
-            .try_push(message)
-            .map_err(|_| AudioEngineError::QueueFull)?;
-
-        Ok(())
-    }
-
-    pub fn load_audio_file(
-        &mut self,
-        path: impl AsRef<Path>,
-    ) -> Result<Arc<InterleavedBuffer<T>>, LoadError>
-    where
-        T: ConvertibleSample,
-    {
-        audio_buffer::loader::load(path).map(|buffer| Arc::new(buffer))
-    }
+pub enum SendCommandError {
+    TrySendError(TrySendError<AudioCommand>),
+    TryRecvError(TryRecvError),
 }

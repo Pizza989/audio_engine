@@ -27,13 +27,17 @@ pub struct Connection {
     matrix: PinMatrix,
 }
 
-// INVARIANT: "PinMatrix Validity"
-// The matrix stored on graph edges must always have
-// as many input channels as the source has output
-// channels and as many output channels as the
+// INVARIANT: 'PinMatrix Validity'
+// This invariant guarantees that channel mappings on
+// graph connections are always valid.
+// This means that the matrix stored on graph edges
+// must have as many input channels as the source has
+// output channels and as many output channels as the
 // destination has input channels.
-// INVARIANT: "Output Validity"
-// `self.output` must always be a valid index
+//
+// INVARIANT: 'Output Validity'
+// This invariant guarantees that `self.output` always
+// references a valid `Node` inside `self.dag`.
 pub struct AudioGraph<T, N>
 where
     T: dasp::Sample,

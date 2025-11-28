@@ -9,8 +9,8 @@ time = { path = "crates/time" }
 audio_buffer = { path = "crates/audio_buffer" }
 audio_graph = { path = "crates/audio_graph" }
 cpal = "0.16.0"
-ringbuf = "0.4.8"
 log = "0.4.28"
+crossbeam-channel = "0.5.15"
 
 [workspace]
 members = ["crates/time", "crates/audio_buffer", "crates/audio_graph"]
