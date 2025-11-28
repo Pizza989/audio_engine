@@ -14,6 +14,7 @@ use crate::buffer_pool::BufferArena;
 use crate::error::GraphError;
 use crate::pin_matrix::PinMatrix;
 use crate::processor::AudioProcessor;
+use crate::processor::ProcessingContext;
 use crate::processor::ProcessorConfiguration;
 
 pub use daggy;
@@ -209,6 +210,7 @@ where
         &mut self,
         inputs: &HashMap<NodeIndex, &InterleavedBuffer<T>>,
         output: &mut InterleavedBuffer<T>,
+        processing_context: ProcessingContext,
     ) {
         let mut node_outputs: HashMap<NodeIndex, InterleavedBuffer<T>> = HashMap::new();
 
@@ -224,7 +226,7 @@ where
                     .node_weight_mut(node_idx)
                     .expect("precondition a")
                     .process_unchecked(
-                        &external_input,
+                        Some(&external_input),
                         if node_idx == self.output {
                             output
                         } else {
@@ -235,6 +237,7 @@ where
                             node_outputs.insert(node_idx, node_output);
                             node_outputs.get_mut(&node_idx).unwrap()
                         },
+                        processing_context.clone(),
                     );
             } else {
                 let mut mixed = self
@@ -248,7 +251,7 @@ where
                     .node_weight_mut(node_idx)
                     .expect("precondition a")
                     .process_unchecked(
-                        &mixed,
+                        Some(&mixed),
                         if node_idx == self.output {
                             output
                         } else {
@@ -259,6 +262,7 @@ where
                             node_outputs.insert(node_idx, node_output);
                             node_outputs.get_mut(&node_idx).unwrap()
                         },
+                        processing_context.clone(),
                     );
 
                 mixed.set_to_equilibrium();

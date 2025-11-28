@@ -1,32 +1,38 @@
+use std::ops::Range;
+
 use audio_buffer::{
     buffers::interleaved::InterleavedBuffer,
     core::{Buffer, io::mix_buffers},
     dasp,
 };
+use time::{MusicalTime, SampleRate};
 
 use crate::error::ProcessingError;
 
 pub trait AudioProcessor<T: dasp::Sample>: Send {
     fn process(
         &mut self,
-        input: &InterleavedBuffer<T>,
+        input: Option<&InterleavedBuffer<T>>,
         output: &mut InterleavedBuffer<T>,
+        processing_info: ProcessingContext,
     ) -> Result<(), ProcessingError> {
         let config = self.config();
-        if config.num_input_channels != input.channels()
-            || config.num_output_channels != output.channels()
+        if let Some(buffer) = input
+            && config.num_input_channels != buffer.channels()
         {
             return Err(ProcessingError::InvalidBuffers);
+        } else if config.num_output_channels != output.channels() {
+            return Err(ProcessingError::InvalidBuffers);
         } else {
-            self.process_unchecked(input, output);
-            Ok(())
+            Ok(self.process_unchecked(input, output, processing_info))
         }
     }
 
     fn process_unchecked(
         &mut self,
-        input: &InterleavedBuffer<T>,
+        input: Option<&InterleavedBuffer<T>>,
         output: &mut InterleavedBuffer<T>,
+        processing_info: ProcessingContext,
     );
 
     fn config(&self) -> ProcessorConfiguration;
@@ -39,10 +45,11 @@ where
 {
     fn process_unchecked(
         &mut self,
-        input: &InterleavedBuffer<S>,
+        input: Option<&InterleavedBuffer<S>>,
         output: &mut InterleavedBuffer<S>,
+        processing_context: ProcessingContext,
     ) {
-        (**self).process_unchecked(input, output);
+        (**self).process_unchecked(input, output, processing_context);
     }
 
     fn config(&self) -> ProcessorConfiguration {
@@ -94,10 +101,13 @@ where
 {
     fn process_unchecked(
         &mut self,
-        input: &InterleavedBuffer<T>,
+        input: Option<&InterleavedBuffer<T>>,
         output: &mut InterleavedBuffer<T>,
+        _processing_info: ProcessingContext,
     ) {
-        mix_buffers(input, output, None).expect("this is the unchecked method");
+        if let Some(buffer) = input {
+            mix_buffers(buffer, output, None).expect("this is the unchecked method");
+        }
     }
 
     fn config(&self) -> ProcessorConfiguration {
@@ -106,6 +116,13 @@ where
             num_output_channels: self.num_output_channels,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessingContext {
+    pub sample_rate: SampleRate,
+    pub block_range: Range<MusicalTime>,
+    pub bpm: f64,
 }
 
 pub struct ProcessorConfiguration {

@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZero};
 
+use audio_buffer::{buffers::interleaved::InterleavedBuffer, core::io::mix_buffers};
 use audio_graph::{
     AudioGraph,
     daggy::NodeIndex,
-    processor::{AudioProcessor, PassThrough},
+    processor::{AudioProcessor, PassThrough, ProcessingContext},
 };
 use time::{FrameTime, SampleRate};
 
@@ -15,6 +16,13 @@ where
 {
     graph: AudioGraph<T, Box<dyn AudioProcessor<T>>>,
     playlist: Playlist<T>,
+
+    // TODO: upholding this will be difficult once reconfiguration
+    // is implemented
+    // INVARIANT: 'Buffer Validity'
+    // This invariant guarantees that the buffer's size is always
+    // sufficient for the block_size
+    buffer: InterleavedBuffer<T>,
 
     // INVARIANT: 'Input Validity'
     // This invariant guarantees that `self.input` always references
@@ -34,18 +42,13 @@ where
             block_size,
         );
 
-        Self {
-            graph,
-            input,
-            playlist: Playlist::empty(),
-        }
-    }
+        let buffer = InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), block_size);
 
-    pub fn from_graph(graph: AudioGraph<T, Box<dyn AudioProcessor<T>>>, input: NodeIndex) -> Self {
         Self {
             graph,
             input,
             playlist: Playlist::empty(),
+            buffer,
         }
     }
 
@@ -64,12 +67,29 @@ where
 {
     fn process_unchecked(
         &mut self,
-        input: &audio_buffer::buffers::interleaved::InterleavedBuffer<T>,
+        _input: Option<&audio_buffer::buffers::interleaved::InterleavedBuffer<T>>,
         output: &mut audio_buffer::buffers::interleaved::InterleavedBuffer<T>,
+        processing_context: ProcessingContext,
     ) {
+        let block_events = self.get_playlist().get_block_events(
+            processing_context.block_range.clone(),
+            processing_context.bpm,
+            processing_context.sample_rate,
+        );
+
+        for block_event in block_events {
+            mix_buffers(
+                &block_event.event.buffer,
+                &mut self.buffer,
+                Some(block_event.block_offset.0 as usize),
+            )
+            .expect("precondition a");
+        }
+
         let mut inputs = HashMap::new();
-        inputs.insert(self.input, input);
-        self.graph.process_block(&inputs, output);
+        inputs.insert(self.input, &self.buffer);
+        self.graph
+            .process_block(&inputs, output, processing_context);
     }
 
     fn config(&self) -> audio_graph::processor::ProcessorConfiguration {
