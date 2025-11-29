@@ -18,9 +18,11 @@ use crate::processor::ProcessingContext;
 use crate::processor::ProcessorConfiguration;
 
 pub use daggy;
+pub use slotmap;
 
 pub mod buffer_pool;
 pub mod error;
+pub mod mix_graph;
 pub mod pin_matrix;
 pub mod processor;
 
