@@ -1,17 +1,8 @@
-use std::{collections::HashMap, num::NonZero, ops::Range};
+use std::ops::Range;
 
-use audio_buffer::{
-    SharedSample,
-    buffers::interleaved::InterleavedBuffer,
-    core::{Buffer, BufferMut, io::mix_buffers},
-};
-use audio_graph::{
-    AudioGraph,
-    daggy::{EdgeIndex, NodeIndex},
-    pin_matrix::PinMatrix,
-};
+use audio_buffer::SharedSample;
+use audio_graph::mix_graph::MixGraph;
 use crossbeam_channel::Receiver;
-use log::error;
 use time::{FrameTime, MusicalTime, SampleRate};
 
 use crate::{
@@ -19,12 +10,9 @@ use crate::{
     track::Track,
 };
 
-pub struct AudioBackend<T: SharedSample> {
+pub struct AudioBackend<Sample: SharedSample> {
     receiver: Receiver<AudioCommand>,
-    graph: AudioGraph<T, Track<T>>,
-    master: NodeIndex,
-    master_buffer: InterleavedBuffer<T>,
-    track_buffers: HashMap<NodeIndex, InterleavedBuffer<T>>,
+    graph: MixGraph<Sample, Track<Sample>, ()>,
 
     block_size: FrameTime,
     block_duration_musical: MusicalTime,
@@ -35,51 +23,17 @@ pub struct AudioBackend<T: SharedSample> {
     running: bool,
 }
 
-impl<T: SharedSample> AudioBackend<T> {
-    pub fn add_track(&mut self) {
-        let index = self
-            .graph
-            .add_node(Track::from_config(self.sample_rate, self.block_size));
-
-        self.graph
-            .add_connection(index, self.master, PinMatrix::diagonal(2, 2))
-            .expect("logic error");
-
-        self.track_buffers.insert(
-            index,
-            InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), self.block_size),
-        );
-    }
-    pub fn add_connection(&mut self, source: NodeIndex, destination: NodeIndex, matrix: PinMatrix) {
-        if let Err(e) = self.graph.add_connection(source, destination, matrix) {
-            error!(
-                "Error while adding a connection to the audio graph: {:?}",
-                e
-            );
-        }
-    }
-
-    pub fn update_connection(&mut self, edge: EdgeIndex, matrix: PinMatrix) {
-        if let None = self.graph.update_connection(edge, matrix) {
-            error!("Error while updating connection");
-        }
-    }
-}
-
-impl<T: SharedSample> AudioBackend<T> {
+impl<Sample: SharedSample> AudioBackend<Sample> {
     pub fn new(
         receiver: Receiver<AudioCommand>,
-        graph: AudioGraph<T, Track<T>>,
-        master: NodeIndex,
+        graph: MixGraph<Sample, Track<Sample>, ()>,
         block_size: FrameTime,
         bpm: f64,
         sample_rate: SampleRate,
     ) -> Self {
         Self {
             graph,
-            master,
-            master_buffer: InterleavedBuffer::with_shape(NonZero::new(2).unwrap(), block_size),
-            track_buffers: HashMap::new(),
+
             block_size,
             block_duration_musical: block_size.to_musical_lossy(bpm, sample_rate),
             block_range: MusicalTime::ZERO..block_size.to_musical_lossy(bpm, sample_rate),
@@ -99,41 +53,10 @@ impl<T: SharedSample> AudioBackend<T> {
         }
     }
 
-    // PRECONDITIONS:
-    // a) track_buffers must hold a valid buffer for each track that isn't self.master
-    // b) master_buffer must be a valid buffer
-    pub fn process_block(&mut self, output: &mut [T]) {
+    pub fn process_block(&mut self, output: &mut [Sample]) {
         if !self.running {
             return;
         }
-
-        self.graph.process_block(
-            &self.track_buffers.iter().map(|(&k, v)| (k, v)).collect(),
-            &mut self.master_buffer,
-            audio_graph::processor::ProcessingContext {
-                sample_rate: self.sample_rate,
-                block_range: self.block_range.clone(),
-                bpm: self.bpm,
-            },
-        );
-
-        // TODO: make clean adapter abstraction
-        let channels = self.master_buffer.channels();
-        for (i, sample) in output.iter_mut().enumerate() {
-            let frame = i / channels;
-            let channel = i % channels;
-            *sample = *self
-                .master_buffer
-                .get_sample(channel, frame)
-                .unwrap_or(&T::EQUILIBRIUM);
-        }
-
-        for buffer in self.track_buffers.values_mut() {
-            buffer.set_to_equilibrium();
-        }
-
-        self.master_buffer.set_to_equilibrium();
-
         self.block_range =
             self.block_range.end..(self.block_range.end + self.block_duration_musical)
     }

@@ -1,25 +1,28 @@
 use std::{ops::Range, sync::Arc};
 
-use audio_buffer::buffers::interleaved::InterleavedBuffer;
+use audio_buffer::{AudioBuffer, dasp};
 use interavl::IntervalTree;
 use time::{FrameTime, MusicalTime, SampleRate};
 
 #[derive(Clone)]
-pub struct BlockEvent<T> {
-    pub block_offset: FrameTime,
+pub struct BlockEvent<T: dasp::Sample> {
+    pub block_offset: usize,
     pub event: Event<T>,
 }
 
 #[derive(Clone)]
-pub struct Event<T> {
-    pub buffer: Arc<InterleavedBuffer<T>>,
+pub struct Event<T: dasp::Sample> {
+    pub buffer: Arc<AudioBuffer<T>>,
 }
 
-pub struct Clip<T> {
-    pub buffer: Arc<InterleavedBuffer<T>>,
+pub struct Clip<T: dasp::Sample> {
+    pub buffer: Arc<AudioBuffer<T>>,
 }
 
-impl<T> Clone for Clip<T> {
+impl<T> Clone for Clip<T>
+where
+    T: dasp::Sample,
+{
     fn clone(&self) -> Self {
         Self {
             buffer: self.buffer.clone(),
@@ -27,11 +30,17 @@ impl<T> Clone for Clip<T> {
     }
 }
 
-pub struct Playlist<T> {
+pub struct Playlist<T>
+where
+    T: dasp::Sample,
+{
     clips: IntervalTree<MusicalTime, Clip<T>>,
 }
 
-impl<T> Playlist<T> {
+impl<T> Playlist<T>
+where
+    T: dasp::Sample,
+{
     pub fn from_clips(clips: IntervalTree<MusicalTime, Clip<T>>) -> Self {
         Self { clips }
     }
@@ -43,7 +52,10 @@ impl<T> Playlist<T> {
     }
 }
 
-impl<T> Playlist<T> {
+impl<T> Playlist<T>
+where
+    T: dasp::Sample,
+{
     /// Insert a `Clip` into the `Playlist`
     /// Returns the previously existing clip at this range, or `None` if there wasn't any
     ///
@@ -104,7 +116,7 @@ impl<T> Playlist<T> {
             let offset_frames = offset_musical.to_nearest_frame_round_lossy(bpm, sample_rate);
 
             block_events.push(BlockEvent {
-                block_offset: offset_frames,
+                block_offset: offset_frames.0 as usize,
                 event,
             });
         }
@@ -115,7 +127,10 @@ impl<T> Playlist<T> {
 
 /// An Iterator that generates BlockEvents from an IntervalTree
 // TODO: currently not needed; maybe remove?
-pub struct BlockIterator<'a, T> {
+pub struct BlockIterator<'a, T>
+where
+    T: dasp::Sample,
+{
     bpm: f64,
     sample_rate: SampleRate,
     current_musical_pos: MusicalTime,
@@ -123,7 +138,10 @@ pub struct BlockIterator<'a, T> {
     clips: &'a IntervalTree<MusicalTime, Clip<T>>,
 }
 
-impl<T> Iterator for BlockIterator<'_, T> {
+impl<T> Iterator for BlockIterator<'_, T>
+where
+    T: dasp::Sample,
+{
     type Item = Vec<BlockEvent<T>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -147,7 +165,7 @@ impl<T> Iterator for BlockIterator<'_, T> {
                 offset_musical.to_nearest_frame_round_lossy(self.bpm, self.sample_rate);
 
             block_events.push(BlockEvent {
-                block_offset: offset_frames,
+                block_offset: offset_frames.0 as usize,
                 event,
             });
         }

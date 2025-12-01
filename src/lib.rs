@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod bus;
 pub mod command;
 pub mod engine;
 pub mod playlist;
